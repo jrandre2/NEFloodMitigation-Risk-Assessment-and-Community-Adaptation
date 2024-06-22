@@ -3,7 +3,7 @@
 ## Disaster Risk Awareness and Housing Resilience Planning for HUD-MID Areas in Nebraska
 
 # Project Timeline
-![Project Timeline](https://raw.githubusercontent.com/yourusername/yourrepository/main/project_timeline.svg)
+![Project Timeline](https://raw.githubusercontent.com/jrandre2/NEFloodMitigation-Risk-Assessment-and-Community-Adaptation/main/Timeline.svg)
 
 ### Project Overview
 
