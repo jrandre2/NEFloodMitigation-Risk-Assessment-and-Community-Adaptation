@@ -2,12 +2,13 @@
 
 ## Disaster Risk Awareness and Housing Resilience Planning for HUD-MID Areas in Nebraska
 
-# Project Timeline
-![Project Timeline](https://raw.githubusercontent.com/jrandre2/NEFloodMitigation-Risk-Assessment-and-Community-Adaptation/main/TimeLine.svg)
-
 ### Project Overview
 
 This project aims to enhance awareness and resilience in flood-prone communities across Nebraska, with a focus on the Most Impacted and Distressed (HUD-MID) areas identified by the U.S. Department of Housing and Urban Development (HUD). The project spans from January 1, 2024 to December 31, 2025, and is led by researchers from the University of Nebraska-Lincoln.
+
+### Project Timeline
+![Project Timeline](https://raw.githubusercontent.com/jrandre2/NEFloodMitigation-Risk-Assessment-and-Community-Adaptation/main/TimeLine.svg)
+
 
 ### Objectives
 
