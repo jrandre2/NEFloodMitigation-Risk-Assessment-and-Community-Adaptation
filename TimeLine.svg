@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 380">
+  <style>
+    text { font-family: Arial, sans-serif; font-size: 12px; }
+    .title { font-size: 20px; font-weight: bold; }
+    .year { font-size: 16px; font-weight: bold; }
+    .task-main { font-size: 14px; font-weight: bold; }
+    .legend { font-size: 10px; }
+  </style>
+  
+  <!-- Title -->
+  <text x="400" y="30" text-anchor="middle" class="title">Project Timeline: 2024-2025</text>
+  
+  <!-- Timeline base -->
+  <line x1="100" y1="50" x2="700" y2="50" stroke="black" stroke-width="2"/>
+  <line x1="100" y1="45" x2="100" y2="55" stroke="black" stroke-width="2"/>
+  <line x1="300" y1="45" x2="300" y2="55" stroke="black" stroke-width="2"/>
+  <line x1="500" y1="45" x2="500" y2="55" stroke="black" stroke-width="2"/>
+  <line x1="700" y1="45" x2="700" y2="55" stroke="black" stroke-width="2"/>
+  
+  <text x="100" y="70" class="year">Jan 2024</text>
+  <text x="300" y="70" class="year" text-anchor="middle">Jun 2024</text>
+  <text x="500" y="70" class="year" text-anchor="middle">Jun 2025</text>
+  <text x="700" y="70" class="year" text-anchor="end">Dec 2025</text>
+  
+  <!-- Task 1 -->
+  <text x="90" y="100" text-anchor="end" class="task-main">Task 1</text>
+  <rect x="100" y="90" width="300" height="20" fill="#4e79a7" opacity="0.3"/>
+  <rect x="100" y="90" width="75" height="20" fill="#4e79a7"/>
+  <rect x="175" y="90" width="150" height="20" fill="#4e79a7" opacity="0.6"/>
+  <rect x="325" y="90" width="75" height="20" fill="#4e79a7" opacity="0.8"/>
+  <text x="105" y="104" fill="white">T1.1</text>
+  <text x="180" y="104" fill="white">T1.2</text>
+  <text x="330" y="104" fill="white">T1.3</text>
+  
+  <!-- Task 2 -->
+  <text x="90" y="130" text-anchor="end" class="task-main">Task 2</text>
+  <rect x="100" y="120" width="300" height="20" fill="#f28e2b" opacity="0.3"/>
+  <rect x="100" y="120" width="25" height="20" fill="#f28e2b"/>
+  <rect x="125" y="120" width="125" height="20" fill="#f28e2b" opacity="0.6"/>
+  <rect x="250" y="120" width="150" height="20" fill="#f28e2b" opacity="0.8"/>
+  <text x="105" y="134" fill="white">T2.1</text>
+  <text x="187" y="134" fill="white" text-anchor="middle">T2.2</text>
+  <text x="255" y="134" fill="white">T2.3</text>
+  
+  <!-- Task 3 -->
+  <text x="90" y="160" text-anchor="end" class="task-main">Task 3</text>
+  <rect x="250" y="150" width="450" height="20" fill="#e15759" opacity="0.3"/>
+  <rect x="250" y="150" width="225" height="20" fill="#e15759"/>
+  <rect x="475" y="150" width="75" height="20" fill="#e15759" opacity="0.6"/>
+  <rect x="550" y="150" width="150" height="20" fill="#e15759" opacity="0.8"/>
+  <text x="255" y="164" fill="white">T3.1</text>
+  <text x="480" y="164" fill="white">T3.2</text>
+  <text x="555" y="164" fill="white">T3.3</text>
+  
+  <!-- Legend -->
+  <rect x="100" y="190" width="15" height="15" fill="#4e79a7"/>
+  <text x="120" y="202" class="legend">Task 1: Flood Risk Assessment</text>
+  <text x="120" y="214" class="legend">T1.1: Collect data (Jan-Mar 2024)</text>
+  <text x="120" y="226" class="legend">T1.2: Develop methodology (Apr-Sep 2024)</text>
+  <text x="120" y="238" class="legend">T1.3: Create maps &amp; database (Oct-Dec 2024)</text>
+  
+  <rect x="100" y="250" width="15" height="15" fill="#f28e2b"/>
+  <text x="120" y="262" class="legend">Task 2: Risk Education &amp; Engagement</text>
+  <text x="120" y="274" class="legend">T2.1: Build network (Jan 2024)</text>
+  <text x="120" y="286" class="legend">T2.2: Develop plans (Feb-Jun 2024)</text>
+  <text x="120" y="298" class="legend">T2.3: Conduct outreach (Jul-Dec 2024)</text>
+  
+  <rect x="100" y="310" width="15" height="15" fill="#e15759"/>
+  <text x="120" y="322" class="legend">Task 3: Mitigation &amp; Planning</text>
+  <text x="120" y="334" class="legend">T3.1: Evaluate efforts (Jul 2024 - Mar 2025)</text>
+  <text x="120" y="346" class="legend">T3.2: Assess integration (Apr-Jun 2025)</text>
+  <text x="120" y="358" class="legend">T3.3: Develop guidebook (Jul-Dec 2025)</text>
+</svg>
