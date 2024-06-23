@@ -33,15 +33,6 @@ This project aims to enhance awareness and resilience in flood-prone communities
 - `community_engagement/`: Materials for community outreach
 - `planning_integration/`: Guidelines and case studies
 
-### Getting Started
-
-1. Clone this repository
-2. Install required dependencies: `pip install -r requirements.txt`
-3. Explore the `docs/` directory for detailed project information
-
-### Contributing
-
-We welcome contributions from researchers, planners, and community members. Please see our [Contribution Guidelines](docs/CONTRIBUTING.md) for more information.
 
 ### Contact
 
