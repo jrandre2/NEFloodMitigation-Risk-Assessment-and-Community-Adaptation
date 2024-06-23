@@ -31,7 +31,6 @@ This project aims to enhance awareness and resilience in flood-prone communities
 - `data/`: Dataset storage
 - `outputs/`: Generated figures, maps, and reports
 - `community_engagement/`: Materials for community outreach
-- `planning_integration/`: Guidelines and case studies
 
 
 ### Contact
