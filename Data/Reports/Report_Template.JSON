@@ -1,0 +1,110 @@
+{
+  "reportTitle": "Narrative Flood Damage Analysis Report",
+  "metadata": {
+    "year": null,
+    "location": null,
+    "dataSource": null,
+    "analyst": null
+  },
+  "reportStyle": {
+    "format": "narrative",
+    "focus": "data-driven observations",
+    "tone": "objective and descriptive"
+  },
+  "coreSections": [
+    {
+      "sectionTitle": "Introduction",
+      "purpose": "Set the scene and provide context for the flood event and subsequent analysis"
+    },
+    {
+      "sectionTitle": "Data Overview",
+      "purpose": "Introduce the dataset, its source, and key characteristics",
+      "flexibleComponents": [
+        "sampleSize",
+        "timeFrame",
+        "geographicScope",
+        "dataCategories"
+      ]
+    },
+    {
+      "sectionTitle": "Analysis Approach",
+      "purpose": "Briefly explain how the data was categorized and analyzed",
+      "flexibleComponents": [
+        "structureClassification",
+        "damageMetrics",
+        "analyticalMethods"
+      ]
+    },
+    {
+      "sectionTitle": "Damage Patterns",
+      "purpose": "Describe observed patterns in flood damage across different structure types",
+      "flexibleComponents": [
+        "overallDamageDistribution",
+        "categoryComparisons",
+        "notableOutliers"
+      ]
+    },
+    {
+      "sectionTitle": "Key Observations",
+      "purpose": "Highlight the most significant findings from the data analysis",
+      "flexibleComponents": [
+        "structureTypeImpacts",
+        "geographicVariations",
+        "temporalTrends"
+      ]
+    },
+    {
+      "sectionTitle": "Data Insights",
+      "purpose": "Discuss any unexpected or interesting relationships found in the data"
+    },
+    {
+      "sectionTitle": "Analysis Limitations",
+      "purpose": "Acknowledge constraints of the data and analysis methods"
+    },
+    {
+      "sectionTitle": "Conclusion",
+      "purpose": "Summarize the main points of the analysis without speculation on broader impacts"
+    }
+  ],
+  "flexibleSections": [],
+  "dataElements": [
+    {
+      "name": "structureType",
+      "type": "categorical",
+      "description": "Classification of structures (e.g., residential, commercial, agricultural)"
+    },
+    {
+      "name": "damageAmount",
+      "type": "numerical",
+      "description": "Quantified measure of flood damage"
+    },
+    {
+      "name": "location",
+      "type": "categorical",
+      "description": "Geographic identifiers within the affected area"
+    },
+    {
+      "name": "timeData",
+      "type": "temporal",
+      "description": "Relevant dates or time periods related to the flood event"
+    }
+  ],
+  "narrativeGuidelines": [
+    "Tell the story of the flood's impact through data",
+    "Use clear, concise language to describe observations",
+    "Present data patterns and relationships objectively",
+    "Avoid speculation or discussion of broader societal impacts",
+    "Use analogies or comparisons to make data more relatable, when appropriate",
+    "Maintain a logical flow from general observations to specific insights"
+  ],
+  "visualizationGuidance": [
+    "Integrate visualizations seamlessly into the narrative",
+    "Use visuals to support and enhance textual observations",
+    "Ensure all visualizations are clearly explained in the narrative"
+  ],
+  "adaptabilityNotes": [
+    "Adjust the narrative structure based on the most compelling data stories",
+    "Add or modify sections as needed to best present the data insights",
+    "Maintain focus on direct observations from the data, avoiding broader extrapolations"
+  ]
+}
