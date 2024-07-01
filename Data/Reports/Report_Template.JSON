@@ -4,7 +4,9 @@
     "year": null,
     "location": null,
     "dataSource": null,
-    "analyst": null
+    "analyst": null,
+    "reportNumber": null,
+    "dateCreated": null
   },
   "reportStyle": {
     "format": "professional and concise",
@@ -33,17 +35,22 @@
     },
     {
       "sectionTitle": "Analysis Approach",
-      "content": "Concise explanation of categorization method and damage metric",
+      "content": "Concise explanation of categorization method and metrics",
       "instructions": "Focus on methodology, not rationale"
     },
     {
-      "sectionTitle": "Damage Patterns",
+      "sectionTitle": "Damage by Structure Type",
       "content": [
-        "Table 3: Detailed Damage Statistics by Primary Structure Type",
-        "Table 4: Damage Statistics for Agricultural Use",
-        "Brief description of key statistics"
+        "Table: Damage statistics by structure type",
+        "Description of key statistics (mean, median, standard deviation)",
+        "Notable differences between structure types"
       ],
-      "instructions": "Stick to describing the data shown in tables"
+      "instructions": "Present detailed statistics and brief factual observations"
+    },
+    {
+      "sectionTitle": "Additional Analysis",
+      "content": "Space for other relevant analyses (e.g., agricultural vs non-agricultural use)",
+      "instructions": "Include only if relevant to the specific report"
     },
     {
       "sectionTitle": "Key Observations",
@@ -64,21 +71,25 @@
   "tableGuidelines": [
     "Use consistent formatting for all tables",
     "Ensure all tables are properly labeled and numbered",
-    "Include appropriate units in table headers (e.g., $ for damage amounts)"
+    "Include appropriate units in table headers (e.g., $ for damage amounts)",
+    "Present key statistics: count, mean, median, standard deviation where applicable"
   ],
   "dataPresentation": [
     "Present raw data and statistics without extensive interpretation",
     "Use precise numbers as provided in the dataset",
-    "Clearly distinguish between different classification systems (e.g., primary use vs. agricultural use)"
+    "Clearly distinguish between different classification systems (e.g., primary use vs. agricultural use)",
+    "Include ranges (minimum to maximum) for damage amounts where relevant"
   ],
   "writingStyle": [
     "Use clear, concise language",
     "Avoid jargon or technical terms without necessary explanation",
-    "Maintain a professional and objective tone throughout"
+    "Maintain a professional and objective tone throughout",
+    "Use active voice and present tense where possible"
   ],
   "finalInstructions": [
     "Focus on presenting the data clearly and accurately",
     "Keep conclusions and interpretations brief and directly tied to the data",
-    "Ensure the report can stand alone as a factual presentation of the flood damage data"
+    "Ensure the report can stand alone as a factual presentation of the flood damage data",
+    "Adapt the template as needed to fit the specific data and analysis of each report"
   ]
 }
