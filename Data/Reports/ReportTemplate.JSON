@@ -1,0 +1,43 @@
+{
+  "report_metadata": {
+    "title": null,
+    "date": null,
+    "region": null,
+    "data_source": null
+  },
+  "introduction": {
+    "background": null,
+    "objective": null
+  },
+  "data_overview": {
+    "sample_size": null,
+    "time_period": null,
+    "geographic_scope": null
+  },
+  "key_metrics": [
+    {
+      "name": null,
+      "value": null,
+      "unit": null,
+      "description": null
+    }
+  ],
+  "analyses": [
+    {
+      "title": null,
+      "description": null,
+      "data": [
+        {
+          "category": null,
+          "value": null,
+          "additional_info": {}
+        }
+      ],
+      "key_findings": []
+    }
+  ],
+  "conclusions": {
+    "summary": null,
+    "implications": null
+  }
+}
