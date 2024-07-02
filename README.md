@@ -38,7 +38,7 @@ This project aims to enhance awareness and resilience in flood-prone communities
 For more information, please contact:
 - Dr. Zhenghong Tang (Principal Investigator): [ztang2@unl.edu](mailto:ztang2@unl.edu)
 - Dr. Yunwoo Nam (Co-Investigator): [ynam2@unl.edu](mailto:ynam2@unl.edu)
-- Dr. Jesse Andrews (Researcher):  [jandrews30@unl](mailto:jandrews30@unl)
+- Dr. Jesse Andrews (Researcher):  [jandrews30@unl.edu](mailto:jandrews30@unl.edu)
 - Dr. Jiyoung Lee (Researcher) 
 ### Acknowledgments
 
