@@ -4,10 +4,9 @@ import dask
 import dask.bag as db
 import time
 
-# Set the base directory
+# Set the base directories
 base_directory = r"D:\US HUD\GISdata\LiDAR_3Counties"
 
-# Set the output directory
 output_directory = r"C:\GIS Projects\LiDAR"
 
 # Create the output directory if it does not exist
