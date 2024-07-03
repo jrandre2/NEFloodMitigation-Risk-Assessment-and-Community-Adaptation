@@ -1,19 +1,6 @@
 import os
 from osgeo import gdal
-import dask
-import dask.bag as db
-import time
-
-# Set the base directories
-base_directory = r"D:\US HUD\GISdata\LiDAR_3Counties"
-
-output_directory = r"C:\GIS Projects\LiDAR"
-
-# Create the output directory if it does not exist
-if not os.path.exists(output_directory):
-    os.makedirs(output_directory)
-
-# Function to find raster directories containing .adf files
+import dask directories containing .adf files
 def find_raster_directories(base_dir):
     raster_dirs = []
     for root, dirs, files in os.walk(base_dir):
