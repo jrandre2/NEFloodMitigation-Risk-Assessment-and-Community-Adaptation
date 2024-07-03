@@ -1,0 +1,68 @@
+import os
+from osgeo import gdal
+import dask
+import dask.bag as db
+import time
+
+# Set the base directory
+base_directory = r"D:\US HUD\GISdata\LiDAR_3Counties"
+
+# Set the output directory
+output_directory = r"C:\GIS Projects\LiDAR"
+
+# Create the output directory if it does not exist
+if not os.path.exists(output_directory):
+    os.makedirs(output_directory)
+
+# Function to find raster directories containing .adf files
+def find_raster_directories(base_dir):
+    raster_dirs = []
+    for root, dirs, files in os.walk(base_dir):
+        for file in files:
+            if file.endswith('.adf'):
+                raster_dirs.append(root)
+                break  # Move to the next directory once a .adf file is found
+    return raster_dirs
+
+# Function to convert Esri GRID to GeoTIFF
+def convert_to_geotiff(raster_dir, output_dir):
+    try:
+        # Open the dataset using the directory path
+        dataset = gdal.Open(raster_dir)
+        if not dataset:
+            print(f"Failed to open dataset at {raster_dir}")
+            return
+
+        # Define the output file path
+        raster_name = os.path.basename(raster_dir.rstrip(os.sep))
+        output_file = os.path.join(output_dir, raster_name + ".tif")
+
+        # Perform the conversion
+        driver = gdal.GetDriverByName('GTiff')
+        out_dataset = driver.CreateCopy(output_file, dataset)
+        if out_dataset:
+            out_dataset.FlushCache()
+            print(f"Converted {raster_dir} to {output_file}")
+        else:
+            print(f"Failed to create output dataset for {raster_dir}")
+    except Exception as e:
+        print(f"Failed to convert {raster_dir}. Error: {e}")
+
+# Find raster directories
+raster_directories = find_raster_directories(base_directory)
+
+# Benchmarking single-core processing
+start_time = time.time()
+for raster_dir in raster_directories:
+    convert_to_geotiff(raster_dir, output_directory)
+end_time = time.time()
+single_core_time = end_time - start_time
+print(f"Single-core processing time: {single_core_time} seconds")
+
+# Benchmarking parallel processing with Dask
+start_time = time.time()
+dask_bag = db.from_sequence(raster_directories, npartitions=len(raster_directories))
+dask_bag.map(lambda dir: convert_to_geotiff(dir, output_directory)).compute()
+end_time = time.time()
+parallel_processing_time = end_time - start_time
+print(f"Parallel processing time with Dask: {parallel_processing_time} seconds")
