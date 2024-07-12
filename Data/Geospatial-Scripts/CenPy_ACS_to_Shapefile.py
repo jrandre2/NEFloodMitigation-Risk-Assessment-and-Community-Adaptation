@@ -1,4 +1,4 @@
-
+# Import Libraries
 from cenpy import products
 import geopandas as gpd
 import pandas as pd
@@ -7,8 +7,7 @@ import os
 # List of counties
 counties = ['Sarpy County, NE', 'Dodge County, NE', 'Douglas County, NE', 'Saunders County, NE']
 
-# List of relevant variables, including broadband access and detailed race variables
-variables = [
+# List of relevant variables = [
     'B01001_001E',  # Total population
     'B01001_002E',  # Male population
     'B01001_026E',  # Female population
