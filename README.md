@@ -39,7 +39,7 @@ For more information, please contact:
 - Dr. Zhenghong Tang (Principal Investigator): [ztang2@unl.edu](mailto:ztang2@unl.edu)
 - Dr. Yunwoo Nam (Co-Investigator): [ynam2@unl.edu](mailto:ynam2@unl.edu)
 - Dr. Jesse Andrews (Researcher):  [jandrews30@unl.edu](mailto:jandrews30@unl.edu)
-- Dr. Jiyoung Lee (Researcher)     [jlee142@unl.edu](mailto:jlee142@unl.edu)
+- Dr. Jiyoung Lee (Researcher):    [jlee142@unl.edu](mailto:jlee142@unl.edu)
 ### Acknowledgments
 
 This project is supported by the U.S. Department of Housing and Urban Development (HUD) as part of its efforts to address disaster recovery and resilience in the Most Impacted and Distressed (MID) areas of Nebraska. We thank our partners at the Nebraska Department of Economic Development, Nebraska Department of Natural Resources, FEMA, and local community organizations for their collaboration. 
