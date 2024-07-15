@@ -1,0 +1,82 @@
+{
+    "GEOID": {
+        "description": "Geographic Identifier",
+        "source": "Derived from state, county, and tract fields"
+    },
+    "ALAND": {
+        "description": "Land Area",
+        "source": "Provided by the shapefile"
+    },
+    "TotalPop": {
+        "description": "Total Population",
+        "source": "ACS variable B01003_001E"
+    },
+    "PopDensity": {
+        "description": "Population Density (people per square kilometer)",
+        "source": "Calculated as TotalPop / (ALAND / 1_000_000)"
+    },
+    "WhitePct": {
+        "description": "Percentage of White Population (not Hispanic or Latino)",
+        "source": "Calculated as (B03002_003E / B03002_001E) * 100"
+    },
+    "HispPct": {
+        "description": "Percentage of Hispanic or Latino Population",
+        "source": "Calculated as (B03001_003E / B03002_001E) * 100"
+    },
+    "BlackPct": {
+        "description": "Percentage of Black or African American Population (not Hispanic or Latino)",
+        "source": "Calculated as (B03002_005E / B03002_001E) * 100"
+    },
+    "AsianPct": {
+        "description": "Percentage of Asian Population (not Hispanic or Latino)",
+        "source": "Calculated as (B03002_007E / B03002_001E) * 100"
+    },
+    "PovPct": {
+        "description": "Percentage of Population Below Poverty Level",
+        "source": "Calculated as (B17001_002E / B01003_001E) * 100"
+    },
+    "OwnPct": {
+        "description": "Percentage of Owner Occupied Housing Units",
+        "source": "Calculated as (B25003_002E / (B25003_002E + B25003_003E)) * 100"
+    },
+    "RentPct": {
+        "description": "Percentage of Renter Occupied Housing Units",
+        "source": "Calculated as (B25003_003E / (B25003_002E + B25003_003E)) * 100"
+    },
+    "BroadPct": {
+        "description": "Percentage of Households with Internet Subscription",
+        "source": "Calculated as (B28002_004E / B28002_001E) * 100"
+    },
+    "UnempPct": {
+        "description": "Percentage of Unemployed Population",
+        "source": "Calculated as (B23025_005E / B23025_002E) * 100"
+    },
+    "BachPct": {
+        "description": "Percentage of Population with Bachelor's Degree or Higher",
+        "source": "Calculated as ((B15003_022E + B15003_023E + B15003_024E + B15003_025E) / B15003_001E) * 100"
+    },
+    "Over65Pct": {
+        "description": "Percentage of Population Aged 65 and Over",
+        "source": "Calculated as ((B01001_020E + B01001_021E + B01001_022E + B01001_023E + B01001_024E + B01001_025E + B01001_044E + B01001_045E + B01001_046E + B01001_047E + B01001_048E + B01001_049E) / B01003_001E) * 100"
+    },
+    "DisabPct": {
+        "description": "Percentage of Population with a Disability",
+        "source": "Calculated as ((B18101_004E + B18101_007E + B18101_010E + B18101_013E + B18101_016E + B18101_020E + B18101_023E + B18101_026E + B18101_029E + B18101_032E) / B18101_001E) * 100"
+    },
+    "LmtEngPct": {
+        "description": "Percentage of Population with Limited English Proficiency",
+        "source": "Calculated as ((B16004_006E + B16004_013E + B16004_020E) / B16004_001E) * 100"
+    },
+    "NoVehPct": {
+        "description": "Percentage of Households with No Vehicle Available",
+        "source": "Calculated as ((B25044_003E + B25044_010E) / B25044_001E) * 100"
+    },
+    "Pre1950Pct": {
+        "description": "Percentage of Housing Units Built Before 1950",
+        "source": "Calculated as ((B25034_010E + B25034_011E) / B25034_001E) * 100"
+    },
+    "Study_Area": {
+        "description": "Boolean Indicator for Study Area (1 if located in Sarpy, Douglas, or Dodge counties, 0 otherwise)",
+        "source": "Derived based on COUNTYFP values ('153', '055', '053')"
+    }
+}
