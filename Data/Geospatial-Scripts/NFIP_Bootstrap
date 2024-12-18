@@ -1,0 +1,179 @@
+
+import arcpy
+import numpy as np
+
+# Set workspace
+arcpy.env.workspace = r"CURRENT"
+arcpy.env.overwriteOutput = True
+
+# Input data
+buildings_fc = "Buildings_Projected"
+fema_table = "FEMA_Claims_Nebraska"
+
+# Output field
+count_field = "Bootstrap_Count"
+
+# Parameters
+value_tolerance = 0.25      # ±25% for building value
+elevation_tolerance = 2.0   # ±2 feet for elevation
+n_iterations = 100000       # Number of bootstrap iterations
+
+# -----------------------------------
+# Step 1: Prepare the Buildings Data
+# -----------------------------------
+
+# Check if the count field exists; if not, add it
+if count_field not in [f.name for f in arcpy.ListFields(buildings_fc)]:
+    arcpy.AddField_management(buildings_fc, count_field, "LONG")
+
+# Create dictionaries for building attributes and groupings
+buildings_dict = {}
+buildings_by_zip_fz = {}
+
+# Read building data with data type checks and conversions
+with arcpy.da.SearchCursor(
+    buildings_fc,
+    ["OBJECTID", "BldgID", "ZIP", "FloodZone", "Total_Asse", "ELEVATION"],
+    sql_clause=(None, "ORDER BY ZIP, FloodZone")
+) as cursor:
+    for row in cursor:
+        objectid, bldg_id, zip_code, flood_zone, total_asse, elevation = row
+
+        # ZIP Code
+        if zip_code:
+            zip_code = str(zip_code).strip().zfill(5)
+        else:
+            continue  # Skip if ZIP code is missing
+
+        # Flood Zone
+        if flood_zone:
+            flood_zone = str(flood_zone).strip().upper()
+        else:
+            continue  # Skip if Flood Zone is missing
+
+        # Total Assessed Value
+        try:
+            total_asse = float(total_asse)
+        except (TypeError, ValueError):
+            continue  # Skip if Total_Asse is not a number
+
+        # Elevation
+        try:
+            elevation = float(elevation)
+        except (TypeError, ValueError):
+            elevation = None  # Set to None if invalid
+
+        # Store building attributes
+        buildings_dict[bldg_id] = {
+            "OBJECTID": objectid,
+            "ZIP": zip_code,
+            "FloodZone": flood_zone,
+            "Total_Asse": total_asse,
+            "ELEVATION": elevation
+        }
+
+        # Group buildings by ZIP and FloodZone for efficient lookup
+        key = (zip_code, flood_zone)
+        buildings_by_zip_fz.setdefault(key, []).append(bldg_id)
+
+# -----------------------------------
+# Step 2: Prepare the FEMA Data
+# -----------------------------------
+
+# Filter for March 2019 Midwest Flooding events
+fema_view = arcpy.MakeTableView_management(fema_table, "fema_view", "March_2019_Midwest_Flooding = 1")
+
+# Read FEMA data with data type checks and conversions
+fema_policies = []
+with arcpy.da.SearchCursor(
+    fema_view,
+    ["OBJECTID", "reportedZipCode", "floodZoneCurrent", "buildingReplacementCost", "baseFloodElevation"]
+) as cursor:
+    for row in cursor:
+        policy_id, zip_code, flood_zone, replacement_cost, bfe = row
+
+        # ZIP Code
+        if zip_code:
+            zip_code = str(zip_code).strip().zfill(5)
+        else:
+            continue  # Skip if ZIP code is missing
+
+        # Flood Zone
+        if flood_zone:
+            flood_zone = str(flood_zone).strip().upper()
+        else:
+            continue  # Skip if Flood Zone is missing
+
+        # Replacement Cost
+        try:
+            replacement_cost = float(replacement_cost)
+        except (TypeError, ValueError):
+            continue  # Skip if not a number
+
+        # Base Flood Elevation
+        try:
+            bfe = float(bfe)
+        except (TypeError, ValueError):
+            bfe = None  # Set to None if invalid
+
+        # Store policy information
+        fema_policies.append({
+            "PolicyID": policy_id,
+            "ZIP": zip_code,
+            "FloodZone": flood_zone,
+            "ReplacementCost": replacement_cost,
+            "BaseFloodElevation": bfe
+        })
+
+# -----------------------------------
+# Step 3: Implement Matching Logic and Bootstrap Sampling
+# -----------------------------------
+
+# Initialize a dictionary to store counts per building
+building_counts = {}
+
+# Loop through each policy to find matching buildings
+for policy in fema_policies:
+    key = (policy["ZIP"], policy["FloodZone"])
+    potential_buildings = buildings_by_zip_fz.get(key, [])
+
+    matching_buildings = []
+
+    for bldg_id in potential_buildings:
+        attrs = buildings_dict[bldg_id]
+
+        # Apply value constraint
+        lower_value = policy["ReplacementCost"] * (1 - value_tolerance)
+        upper_value = policy["ReplacementCost"] * (1 + value_tolerance)
+        if not (lower_value <= attrs["Total_Asse"] <= upper_value):
+            continue  # Skip if outside value tolerance
+
+        # Apply elevation constraint
+        if policy["BaseFloodElevation"] is not None and attrs["ELEVATION"] is not None:
+            lower_elev = policy["BaseFloodElevation"] - elevation_tolerance
+            upper_elev = policy["BaseFloodElevation"] + elevation_tolerance
+            if not (lower_elev <= attrs["ELEVATION"] <= upper_elev):
+                continue  # Skip if outside elevation tolerance
+
+        matching_buildings.append(bldg_id)
+
+    # Perform bootstrap sampling if matches are found
+    if matching_buildings:
+        samples = np.random.choice(matching_buildings, size=n_iterations, replace=True)
+        unique, counts = np.unique(samples, return_counts=True)
+        for uid, count in zip(unique, counts):
+            building_counts[uid] = building_counts.get(uid, 0) + count
+
+# -----------------------------------
+# Step 4: Update Buildings Feature Class with Counts
+# -----------------------------------
+
+# Update buildings with the bootstrap counts
+with arcpy.da.UpdateCursor(buildings_fc, ["BldgID", count_field]) as cursor:
+    for row in cursor:
+        bldg_id = row[0]
+        count = building_counts.get(bldg_id, 0)
+        row[1] = count
+        cursor.updateRow(row)
+
+print("Bootstrap counts have been appended to the buildings.")
