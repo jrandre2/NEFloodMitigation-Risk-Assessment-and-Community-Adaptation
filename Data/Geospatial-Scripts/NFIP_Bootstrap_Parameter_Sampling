@@ -1,0 +1,1130 @@
+#!/usr/bin/env python
+"""
+Ensemble-based spatial disaggregation script, using a stratified random sampling
+approach to reduce total parameter combinations.
+"""
+
+import arcpy
+import numpy as np
+import time
+from datetime import datetime
+import os
+import csv
+import logging
+import random
+
+try:
+    from scipy.spatial.distance import pdist, squareform
+except ImportError:
+    pdist = None
+    squareform = None
+
+# ---------------------------------------------------------
+# GLOBALS (Adjust to your environment)
+# ---------------------------------------------------------
+WORKSPACE = r"C:\Mac\Home\Documents\ArcGIS\Projects\MyProject\MyProject.gdb"
+OUTPUT_DIR = r"C:\Mac\Home\Documents\ArcGIS\Projects\MyProject"
+BUILDINGS_FC = "Buildings"
+FEMA_TABLE = "FEMA_Claims_Nebraska"   # The correct table name
+INUNDATION_FC = "Inundation2019"
+
+OUTPUT_FC = "PolicySpatialData_New"
+BOOTSTRAP_FIELD = "Bootstrap_Count"
+FINAL_BUILDINGS_FC = "Buildings_Final"
+
+CHUNK_SIZE = 10000
+BATCH_SIZE = 1000
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
+
+# ---------------------------------------------------------
+# Parameter Ranges
+# ---------------------------------------------------------
+VALUE_TOLS = [0.05, 0.075, 0.10, 0.15, 0.20]
+ELEV_TOLS  = [0.25, 0.5, 1.0]
+YEAR_TOLS  = [1, 3, 5]
+INUN_DISTS = [0, 250, 500, 1000]
+BOOTSTRAP_ITERS = [1000, 5000, 10000]
+ZIP_FLAGS = [True, False]
+ELEV_FLAGS = [True, False]
+YEAR_FLAGS = [True, False]
+
+# How many parameter sets to sample (rather than enumerating all combos)
+NUM_SAMPLES = 50
+
+
+# ---------------------------------------------------------
+# Helper Functions
+# ---------------------------------------------------------
+
+def delete_if_exists(path: str) -> None:
+    if arcpy.Exists(path):
+        try:
+            arcpy.Delete_management(path)
+            logging.info(f"Deleted existing {path}")
+        except Exception as e:
+            logging.warning(f"Could not delete {path}: {e}")
+
+def get_field_mapping(fc: str, required_fields: list) -> dict:
+    existing_fields = {f.name.upper(): f.name for f in arcpy.ListFields(fc)}
+    mapping = {}
+    for field in required_fields:
+        mapping[field] = existing_fields.get(field.upper(), None)
+    return mapping
+
+def add_field_if_not_exists(fc: str, field_name: str, field_type: str) -> None:
+    fields = [f.name for f in arcpy.ListFields(fc)]
+    if field_name not in fields:
+        try:
+            arcpy.AddField_management(fc, field_name, field_type)
+            logging.info(f"Added field {field_name} ({field_type}) to {fc}")
+        except Exception as e:
+            logging.error(f"Failed to add field {field_name} to {fc}: {e}")
+
+def export_to_csv(data: list, headers: list, output_path: str) -> bool:
+    try:
+        with open(output_path, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(headers)
+            writer.writerows(data)
+        logging.info(f"Exported data to {output_path}")
+        return True
+    except Exception as e:
+        logging.error(f"Error exporting to CSV: {e}")
+        return False
+
+def calculate_medoid_efficient(coords_array: np.ndarray) -> np.ndarray:
+    if len(coords_array) <= 50:
+        # direct pairwise approach
+        distances = np.sqrt(((coords_array[:, np.newaxis] - coords_array) ** 2).sum(axis=2))
+        return coords_array[distances.sum(axis=1).argmin()]
+    else:
+        # sample-based approach for large sets
+        sample_size = min(50, len(coords_array))
+        indices = np.random.choice(len(coords_array), sample_size, replace=False)
+        sample_coords = coords_array[indices]
+        distances = np.sqrt(((sample_coords[:, np.newaxis] - sample_coords) ** 2).sum(axis=2))
+        return sample_coords[distances.sum(axis=1).argmin()]
+
+def summarize_bootstrap_distribution(bootstrap_counts: dict) -> dict:
+    counts = np.array(list(bootstrap_counts.values()))
+    if len(counts) == 0:
+        return {
+            "count": 0, "min": 0, "max": 0, "mean": 0, "median": 0, "std": 0,
+            "25_percentile": 0, "75_percentile": 0
+        }
+    return {
+         "count": len(counts),
+         "min": float(np.min(counts)),
+         "max": float(np.max(counts)),
+         "mean": float(np.mean(counts)),
+         "median": float(np.median(counts)),
+         "std": float(np.std(counts)),
+         "25_percentile": float(np.percentile(counts, 25)),
+         "75_percentile": float(np.percentile(counts, 75)),
+    }
+
+def convex_hull(points: np.ndarray) -> np.ndarray:
+    pts = sorted(points.tolist())
+    if len(pts) <= 1:
+        return np.array(pts)
+    lower = []
+    for p in pts:
+        while len(lower) >= 2 and cross(lower[-2], lower[-1], p) <= 0:
+            lower.pop()
+        lower.append(p)
+    upper = []
+    for p in reversed(pts):
+        while len(upper) >= 2 and cross(upper[-2], upper[-1], p) <= 0:
+            upper.pop()
+        upper.append(p)
+    return np.array(lower[:-1] + upper[:-1])
+
+def cross(o, a, b):
+    return (a[0] - o[0])*(b[1] - o[1]) - (a[1] - o[1])*(b[0] - o[0])
+
+def polygon_area(vertices: np.ndarray) -> float:
+    if len(vertices) < 3:
+        return 0.0
+    x = vertices[:,0]
+    y = vertices[:,1]
+    return 0.5 * np.abs(np.dot(x, np.roll(y,1)) - np.dot(y, np.roll(x,1)))
+
+def compute_spatial_metrics(buildings_data: dict, building_counts: dict) -> dict:
+    coords = []
+    attr_values = []
+    for bldg_id, count in building_counts.items():
+        if count > 0 and bldg_id in buildings_data["building_coords"]:
+            coords.append(buildings_data["building_coords"][bldg_id])
+            attr_values.append(count)
+    if len(coords) == 0:
+        return {}
+    coords = np.array(coords)
+    N = len(coords)
+
+    # Mean center
+    mean_center = coords.mean(axis=0)
+    std_distance = float(np.sqrt(np.sum((coords - mean_center)**2) / N))
+
+    hull_vertices = convex_hull(coords)
+    hull_area = float(polygon_area(hull_vertices))
+
+    if pdist is not None and squareform is not None and N > 1:
+        dists = squareform(pdist(coords))
+        np.fill_diagonal(dists, np.inf)
+        nearest_distances = dists.min(axis=1)
+        observed_nn = float(nearest_distances.mean())
+    else:
+        observed_nn = float(np.mean([min(np.linalg.norm(p - q) for q in coords if not np.array_equal(p,q)) for p in coords]))
+
+    expected_nn = 0
+    NNI = None
+    if hull_area > 0 and N > 1:
+        expected_nn = 0.5 * np.sqrt(hull_area / N)
+        if expected_nn > 0:
+            NNI = float(observed_nn / expected_nn)
+
+    # Simple Moran's I
+    x = np.array(attr_values, dtype=float)
+    x_mean = x.mean()
+    threshold = observed_nn if observed_nn > 0 else 1.0
+    if pdist is not None and squareform is not None and N > 1:
+        dists = squareform(pdist(coords))
+        np.fill_diagonal(dists, np.inf)
+        weights = (dists <= threshold).astype(float)
+        np.fill_diagonal(weights, 0)
+        S0 = weights.sum()
+    else:
+        weights = np.zeros((N,N))
+        S0 = 0
+        for i in range(N):
+            for j in range(N):
+                if i != j:
+                    d = np.linalg.norm(coords[i] - coords[j])
+                    if d <= threshold:
+                        weights[i,j] = 1
+                        S0 += 1
+    numerator = 0.0
+    for i in range(N):
+        for j in range(N):
+            numerator += weights[i,j] * (x[i] - x_mean) * (x[j] - x_mean)
+    denominator = ((x - x_mean)**2).sum()
+    moran_I = None
+    if denominator != 0 and S0 != 0:
+        moran_I = float((N / S0) * (numerator / denominator))
+
+    return {
+        "mean_center_x": float(mean_center[0]),
+        "mean_center_y": float(mean_center[1]),
+        "std_distance": std_distance,
+        "convex_hull_area": hull_area,
+        "observed_nn": observed_nn,
+        "expected_nn": float(expected_nn) if expected_nn != 0 else None,
+        "NNI": float(NNI) if NNI else None,
+        "moran_I": moran_I
+    }
+
+# ---------------------------------------------------------
+# Data Preparation / Building-Related
+# ---------------------------------------------------------
+
+def create_clean_feature_class(source_fc: str, target_fc: str) -> str:
+    if arcpy.Exists(target_fc):
+        try:
+            arcpy.Delete_management(target_fc)
+            logging.info(f"Removed existing {target_fc}")
+        except Exception as e:
+            logging.warning(f"Could not delete {target_fc}: {e}")
+            target_fc = f"{target_fc}_2"
+    logging.info(f"Creating clean copy: {target_fc}")
+    try:
+        arcpy.FeatureClassToFeatureClass_conversion(source_fc, arcpy.env.workspace, os.path.basename(target_fc))
+        logging.info(f"Successfully created clean copy: {target_fc}")
+    except Exception as e:
+        logging.error(f"Error with FeatureClassToFeatureClass_conversion: {e}")
+        try:
+            arcpy.Copy_management(source_fc, target_fc)
+            logging.info(f"Created clean copy with Copy: {target_fc}")
+        except Exception as e2:
+            logging.error(f"Error with Copy: {e2}")
+            return source_fc
+    return target_fc
+
+def prepare_buildings_data(buildings_fc: str, bootstrap_field: str, inundation_fc: str, inundation_distance: int) -> dict:
+    """
+    Creates a clean copy of the buildings FC, optionally buffers the inundation FC 
+    to filter buildings, and organizes building data in dictionaries.
+    Returns a dictionary with keys: 'buildings_fc', 'buildings_dict', etc.
+    If empty, we do a fail-fast (the calling code might skip).
+    """
+    start_time = time.time()
+    logging.info("Loading and filtering building data...")
+
+    clean_buildings_fc = create_clean_feature_class(buildings_fc, f"{buildings_fc}_Clean")
+    add_field_if_not_exists(clean_buildings_fc, bootstrap_field, "LONG")
+
+    if not arcpy.Exists(inundation_fc):
+        logging.error(f"Inundation feature class '{inundation_fc}' does not exist.")
+        return {}
+
+    buffer_fc = os.path.join(arcpy.env.workspace, "TempInundationBuffer")
+    delete_if_exists(buffer_fc)
+    buildings_near_inundation = os.path.join(arcpy.env.workspace, "BuildingsNearInundation")
+    delete_if_exists(buildings_near_inundation)
+
+    try:
+        if inundation_distance > 0:
+            logging.info(f"Creating buffer around inundation areas ({inundation_distance} meters)...")
+            arcpy.Buffer_analysis(inundation_fc, buffer_fc, f"{inundation_distance} Meters", 
+                                  "FULL", "ROUND", "ALL")
+            if arcpy.Exists(buffer_fc):
+                logging.info("Buffer created. Performing spatial join...")
+                arcpy.SpatialJoin_analysis(clean_buildings_fc, buffer_fc, buildings_near_inundation,
+                                           "JOIN_ONE_TO_ONE", "KEEP_COMMON", match_option="INTERSECT")
+            else:
+                raise Exception("Buffer not created")
+        else:
+            logging.info("No inundation buffer applied; using all buildings.")
+            buildings_near_inundation = clean_buildings_fc
+    except Exception as e:
+        logging.error(f"Error in buffer/spatial join: {e}")
+        try:
+            arcpy.MakeFeatureLayer_management(clean_buildings_fc, "buildings_lyr")
+            arcpy.SelectByLocation_management("buildings_lyr", "WITHIN_A_DISTANCE", inundation_fc,
+                                              f"{inundation_distance} Meters", "NEW_SELECTION")
+            arcpy.CopyFeatures_management("buildings_lyr", buildings_near_inundation)
+            arcpy.Delete_management("buildings_lyr")
+        except Exception as e2:
+            logging.error(f"Error with alternative select by location: {e2}")
+            buildings_near_inundation = clean_buildings_fc
+
+    if not arcpy.Exists(buildings_near_inundation):
+        logging.error("Failed to create filtered buildings feature class. Using original.")
+        buildings_near_inundation = clean_buildings_fc
+
+    buildings_count = int(arcpy.GetCount_management(buildings_near_inundation).getOutput(0))
+    logging.info(f"Found {buildings_count} buildings for analysis")
+
+    buildings_dict = {}
+    buildings_by_zip_fz = {}
+    building_coords = {}
+    spatial_ref = arcpy.Describe(clean_buildings_fc).spatialReference
+
+    required_fields = ["OBJECTID", "BldgID", "ZIP", "FloodZone", 
+                       "Total_Asse", "ELEVATION", "BuildYear", "SHAPE@XY"]
+    # We'll map up to the 2nd last field since the last is SHAPE@XY
+    field_mapping = get_field_mapping(buildings_near_inundation, required_fields[:-1])
+
+    essential_fields = ["BldgID", "ZIP", "FloodZone"]
+    missing_essentials = [f for f in essential_fields if not field_mapping.get(f)]
+    if missing_essentials:
+        logging.error(f"Essential fields missing: {missing_essentials}")
+        return {}
+
+    cursor_fields = [field_mapping[f] for f in required_fields[:-1] if field_mapping.get(f)] + ["SHAPE@XY"]
+    total_buildings = int(arcpy.GetCount_management(buildings_near_inundation).getOutput(0))
+    logging.info(f"Processing {total_buildings} buildings...")
+
+    with arcpy.da.SearchCursor(buildings_near_inundation, cursor_fields) as cursor:
+        for i, row in enumerate(cursor):
+            bldg_id = str(row[1]).strip() if row[1] is not None else f"Building_{i}"
+            zip_code = str(row[2]).strip().zfill(5) if row[2] else "00000"
+            flood_zone = str(row[3]).strip().upper() if row[3] else "UNKNOWN"
+            try:
+                total_asse = float(row[4]) if row[4] is not None else 0.0
+            except:
+                total_asse = 0.0
+            try:
+                elevation = float(row[5]) if row[5] is not None else None
+            except:
+                elevation = None
+            try:
+                build_year = int(row[6]) if row[6] is not None else None
+            except:
+                build_year = None
+
+            shape_xy = row[-1]
+
+            if not zip_code or not flood_zone:
+                # If these are essential, skip
+                continue
+
+            buildings_dict[bldg_id] = {
+                "OBJECTID": row[0],
+                "ZIP": zip_code,
+                "FloodZone": flood_zone,
+                "Total_Asse": total_asse,
+                "ELEVATION": elevation,
+                "BuildYear": build_year
+            }
+            if shape_xy:
+                building_coords[bldg_id] = shape_xy
+
+            key = (zip_code, flood_zone)
+            buildings_by_zip_fz.setdefault(key, []).append(bldg_id)
+
+            # Progress logging
+            if (i + 1) % CHUNK_SIZE == 0 or (i + 1) == total_buildings:
+                logging.info(f"  - Processed {i + 1}/{total_buildings} buildings")
+
+    # Cleanup
+    delete_if_exists(buffer_fc)
+    if buildings_near_inundation != clean_buildings_fc:
+        delete_if_exists(buildings_near_inundation)
+
+    elapsed = time.time() - start_time
+    logging.info(f"Completed building data preparation in {elapsed:.2f} seconds")
+
+    return {
+        "buildings_fc": clean_buildings_fc,
+        "buildings_dict": buildings_dict,
+        "buildings_by_zip_fz": buildings_by_zip_fz,
+        "building_coords": building_coords,
+        "spatial_reference": spatial_ref
+    }
+
+# ---------------------------------------------------------
+# FEMA Policies
+# ---------------------------------------------------------
+
+def load_fema_policies(fema_table: str) -> list:
+    """
+    Loads FEMA policies from 'FEMA_Claims_Nebraska', returning 
+    a list of dictionaries. Fails fast if no policies exist or table DNE.
+    """
+    start_time = time.time()
+    logging.info("Loading FEMA policy data...")
+
+    if not arcpy.Exists(fema_table):
+        logging.error(f"FEMA table '{fema_table}' does not exist.")
+        return []
+
+    temp_view_name = "fema_view"
+    delete_if_exists(temp_view_name)
+
+    field_names = [f.name for f in arcpy.ListFields(fema_table)]
+    flood_field = next((f for f in field_names if "MARCH_2019" in f.upper() 
+                        or "MIDWEST_FLOODING" in f.upper() 
+                        or "FLOOD_2019" in f.upper()), None)
+
+    try:
+        if flood_field:
+            arcpy.MakeTableView_management(fema_table, temp_view_name, f"{flood_field} = 1")
+        else:
+            logging.warning("No March 2019 flooding field found. Using all records.")
+            arcpy.MakeTableView_management(fema_table, temp_view_name)
+    except Exception as e:
+        logging.error(f"Error creating table view: {e}")
+        return []
+
+    required_fields = [
+        "OBJECTID",
+        "id",  # Alphanumeric text field
+        "reportedZipCode",
+        "floodZoneCurrent",
+        "buildingReplacementCost",
+        "baseFloodElevation",
+        "originalConstructionDate"
+    ]
+    field_mapping = get_field_mapping(fema_table, required_fields)
+    cursor_fields = []
+    for field in required_fields:
+        if field_mapping.get(field):
+            cursor_fields.append(field_mapping[field])
+        else:
+            logging.warning(f"Field '{field}' not found in FEMA table. Using 'OBJECTID' fallback.")
+            cursor_fields.append("OBJECTID")
+
+    fema_policies = []
+    total_policies = int(arcpy.GetCount_management(temp_view_name).getOutput(0))
+    logging.info(f"Processing {total_policies} FEMA policies...")
+
+    with arcpy.da.SearchCursor(temp_view_name, cursor_fields) as cursor:
+        for i, row in enumerate(cursor):
+            policy_id = row[0]
+            unique_claim_id = row[1]
+            zip_code = None
+            if row[2]:
+                zip_code = str(row[2]).zfill(5)
+            flood_zone = None
+            if row[3]:
+                flood_zone = str(row[3]).strip().upper()
+            replacement_cost = row[4]
+            try:
+                replacement_cost = float(replacement_cost) if replacement_cost else None
+            except:
+                replacement_cost = None
+            bfe = row[5]
+            try:
+                bfe = float(bfe) if bfe else None
+            except:
+                bfe = None
+            orig_construct_date = row[6]
+            construction_year = None
+            if orig_construct_date:
+                for fmt in ["%m/%d/%Y", "%Y-%m-%d", "%Y/%m/%d"]:
+                    try:
+                        cdate = datetime.strptime(str(orig_construct_date), fmt)
+                        construction_year = cdate.year
+                        break
+                    except ValueError:
+                        continue
+
+            policy_dict = {
+                "PolicyOID": policy_id,
+                "ClaimID": unique_claim_id,
+                "ZIP": zip_code,
+                "FloodZone": flood_zone,
+                "ReplacementCost": replacement_cost,
+                "BaseFloodElevation": bfe,
+                "ConstructionYear": construction_year
+            }
+            fema_policies.append(policy_dict)
+
+    delete_if_exists(temp_view_name)
+    elapsed = time.time() - start_time
+    logging.info(f"Loaded {len(fema_policies)} policies in {elapsed:.2f} seconds")
+    return fema_policies
+
+# ---------------------------------------------------------
+# Matching (Bootstrap) & Utility
+# ---------------------------------------------------------
+
+def match_policies_to_buildings(fema_policies: list, buildings_data: dict,
+                                value_tolerance: float, elevation_tolerance: float,
+                                year_tolerance: int, n_iterations: int,
+                                use_zip: bool=True, use_elevation: bool=True,
+                                use_year: bool=True) -> dict:
+    """
+    Match FEMA policies to buildings with bootstrap sampling.
+    Returns building_counts: {bldg_id: total_count}.
+    """
+    start_time = time.time()
+    logging.info("Matching policies to buildings with bootstrap sampling...")
+
+    buildings_dict = buildings_data["buildings_dict"]
+    buildings_by_zip_fz = buildings_data["buildings_by_zip_fz"]
+
+    # Regroup by ZIP,FZ or ALL,FZ
+    buildings_group = {}
+    for (zip_code, flood_zone), bldg_list in buildings_by_zip_fz.items():
+        key = (zip_code, flood_zone) if use_zip else ("ALL", flood_zone)
+        if key not in buildings_group:
+            buildings_group[key] = []
+        buildings_group[key].extend(bldg_list)
+
+    policies_group = {}
+    for policy in fema_policies:
+        p_zip = policy["ZIP"] if policy["ZIP"] else "00000"
+        p_fz = policy["FloodZone"] if policy["FloodZone"] else "UNKNOWN"
+        key = (p_zip, p_fz) if use_zip else ("ALL", p_fz)
+        policies_group.setdefault(key, []).append(policy)
+
+    building_counts = {}
+    all_keys = set(list(buildings_group.keys()) + list(policies_group.keys()))
+    logging.info(f"Processing {len(all_keys)} unique grouping keys")
+
+    for i, key in enumerate(all_keys):
+        if key not in policies_group or key not in buildings_group:
+            continue
+        policies = policies_group[key]
+        potential_buildings = buildings_group[key]
+        if not potential_buildings:
+            continue
+
+        building_attributes = {}
+        for bldg_id in potential_buildings:
+            bldg_info = buildings_dict[bldg_id]
+            building_attributes[bldg_id] = {
+                "value": bldg_info["Total_Asse"],
+                "elevation": bldg_info["ELEVATION"],
+                "year": bldg_info["BuildYear"]
+            }
+
+        for policy in policies:
+            if policy["ReplacementCost"] is None:
+                continue
+            lower_value = policy["ReplacementCost"] * (1 - value_tolerance)
+            upper_value = policy["ReplacementCost"] * (1 + value_tolerance)
+            value_matched = [bldg_id for bldg_id in potential_buildings
+                             if lower_value <= building_attributes[bldg_id]["value"] <= upper_value]
+            if not value_matched:
+                continue
+            if use_elevation and policy["BaseFloodElevation"] is not None:
+                lower_elev = policy["BaseFloodElevation"] - elevation_tolerance
+                upper_elev = policy["BaseFloodElevation"] + elevation_tolerance
+                elev_matched = [b for b in value_matched
+                                if (building_attributes[b]["elevation"] is None or
+                                    (lower_elev <= building_attributes[b]["elevation"] <= upper_elev))]
+            else:
+                elev_matched = value_matched
+            if use_year and policy["ConstructionYear"] is not None:
+                lower_year = policy["ConstructionYear"] - year_tolerance
+                upper_year = policy["ConstructionYear"] + year_tolerance
+                final_matched = [b for b in elev_matched
+                                 if (building_attributes[b]["year"] is None or
+                                     (lower_year <= building_attributes[b]["year"] <= upper_year))]
+            else:
+                final_matched = elev_matched
+
+            if final_matched:
+                weights = np.ones(len(final_matched))
+                samples = np.random.choice(final_matched, size=n_iterations,
+                                           replace=True, p=weights/weights.sum())
+                unique, counts = np.unique(samples, return_counts=True)
+                for uid, cnt in zip(unique, counts):
+                    building_counts[uid] = building_counts.get(uid, 0) + cnt
+
+        if (i + 1) % 10 == 0 or (i + 1) == len(all_keys):
+            logging.info(f"  - Processed {i+1}/{len(all_keys)} grouping keys")
+
+    elapsed = time.time() - start_time
+    logging.info(f"Matched {len(fema_policies)} policies to {len(building_counts)} buildings in {elapsed:.2f} seconds")
+    return building_counts
+
+def get_matched_policy_count(fema_policies, buildings_data,
+                             value_tolerance, elev_tolerance, year_tolerance,
+                             use_zip=True, use_elevation=True, use_year=True):
+    """
+    Returns how many policies found at least one building match (sans bootstrap).
+    """
+    buildings_dict = buildings_data["buildings_dict"]
+    buildings_by_zip_fz = buildings_data["buildings_by_zip_fz"]
+
+    buildings_group = {}
+    for (zip_code, flood_zone), bldg_list in buildings_by_zip_fz.items():
+        key = (zip_code, flood_zone) if use_zip else ("ALL", flood_zone)
+        if key not in buildings_group:
+            buildings_group[key] = []
+        buildings_group[key].extend(bldg_list)
+
+    policies_group = {}
+    for policy in fema_policies:
+        p_zip = policy["ZIP"] if policy["ZIP"] else "00000"
+        p_fz = policy["FloodZone"] if policy["FloodZone"] else "UNKNOWN"
+        key = (p_zip, p_fz) if use_zip else ("ALL", p_fz)
+        policies_group.setdefault(key, []).append(policy)
+
+    matched_policies = 0
+    for key, pols in policies_group.items():
+        if key not in buildings_group:
+            continue
+        potential_buildings = buildings_group[key]
+        if not potential_buildings:
+            continue
+        building_attributes = {
+            b: {"value": buildings_dict[b]["Total_Asse"],
+                "elevation": buildings_dict[b]["ELEVATION"],
+                "year": buildings_dict[b]["BuildYear"]}
+            for b in potential_buildings
+        }
+        for policy in pols:
+            if policy["ReplacementCost"] is None:
+                continue
+            lower_value = policy["ReplacementCost"] * (1 - value_tolerance)
+            upper_value = policy["ReplacementCost"] * (1 + value_tolerance)
+            found = False
+            for bldg_id in potential_buildings:
+                attr = building_attributes[bldg_id]
+                if not (lower_value <= attr["value"] <= upper_value):
+                    continue
+                if use_elevation and policy["BaseFloodElevation"] is not None and attr["elevation"] is not None:
+                    e_min = policy["BaseFloodElevation"] - elev_tolerance
+                    e_max = policy["BaseFloodElevation"] + elev_tolerance
+                    if not (e_min <= attr["elevation"] <= e_max):
+                        continue
+                if use_year and policy["ConstructionYear"] is not None and attr["year"] is not None:
+                    y_min = policy["ConstructionYear"] - year_tolerance
+                    y_max = policy["ConstructionYear"] + year_tolerance
+                    if not (y_min <= attr["year"] <= y_max):
+                        continue
+                found = True
+                break
+            if found:
+                matched_policies += 1
+    return matched_policies
+
+# ---------------------------------------------------------
+# Updating FC, Creating Policy Spatial Data
+# ---------------------------------------------------------
+
+def update_building_bootstrap_counts(buildings_data: dict, bootstrap_counts: dict,
+                                     bootstrap_field: str) -> str:
+    start_time = time.time()
+    logging.info("Updating building feature class with bootstrap counts...")
+
+    source_fc = buildings_data["buildings_fc"]
+    buildings_fc = FINAL_BUILDINGS_FC
+    delete_if_exists(buildings_fc)
+
+    try:
+        arcpy.Copy_management(source_fc, buildings_fc)
+        logging.info(f"Created new feature class: {buildings_fc}")
+    except Exception as e:
+        logging.error(f"Error creating feature class copy: {e}")
+        buildings_fc = source_fc
+
+    field_names = [f.name for f in arcpy.ListFields(buildings_fc)]
+    if bootstrap_field in field_names:
+        try:
+            arcpy.DeleteField_management(buildings_fc, bootstrap_field)
+            logging.info(f"Removed existing {bootstrap_field} field")
+        except Exception as e:
+            logging.warning(f"Could not remove existing field: {e}")
+    try:
+        arcpy.AddField_management(buildings_fc, bootstrap_field, "LONG")
+        logging.info(f"Added {bootstrap_field} field (LONG)")
+    except Exception as e:
+        logging.error(f"Error adding bootstrap field: {e}")
+        try:
+            arcpy.AddField_management(buildings_fc, bootstrap_field, "DOUBLE")
+            logging.info(f"Added {bootstrap_field} field as DOUBLE instead")
+        except Exception as e2:
+            logging.error(f"Error adding alternative field type: {e2}")
+            return buildings_fc
+
+    csv_path = os.path.join(OUTPUT_DIR, "BootstrapCounts.csv")
+    with open(csv_path, 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(["BldgID", bootstrap_field])
+        for bldg_id, count in bootstrap_counts.items():
+            writer.writerow([bldg_id, count])
+    logging.info(f"Exported bootstrap counts to CSV: {csv_path}")
+
+    bldg_id_field = None
+    for field in arcpy.ListFields(buildings_fc):
+        if field.name.upper() == "BLDGID":
+            bldg_id_field = field.name
+            break
+    if not bldg_id_field:
+        logging.warning("BldgID field not found. Using OBJECTID as identifier.")
+        bldg_id_field = "OBJECTID"
+
+    id_to_oid_map = {}
+    if bldg_id_field == "OBJECTID":
+        with arcpy.da.SearchCursor(buildings_fc, ["OBJECTID"]) as cursor:
+            for row in cursor:
+                id_to_oid_map[str(row[0]).strip()] = row[0]
+    else:
+        with arcpy.da.SearchCursor(buildings_fc, ["OBJECTID", bldg_id_field]) as cursor:
+            for row in cursor:
+                if row[1] is not None:
+                    bldg_id_val = str(row[1]).strip()
+                    id_to_oid_map[bldg_id_val] = row[0]
+
+    oid_to_count_map = {}
+    for bldg_id, count in bootstrap_counts.items():
+        key = str(bldg_id).strip()
+        if key in id_to_oid_map:
+            oid_to_count_map[id_to_oid_map[key]] = count
+
+    updated_count = 0
+    try:
+        temp_field = "TEMP_OID"
+        arcpy.AddField_management(buildings_fc, temp_field, "LONG")
+        with arcpy.da.UpdateCursor(buildings_fc, ["OBJECTID", temp_field]) as cursor:
+            for row in cursor:
+                row[1] = row[0]
+                cursor.updateRow(row)
+
+        with arcpy.da.UpdateCursor(buildings_fc, [temp_field, bootstrap_field]) as cursor:
+            for row in cursor:
+                if row[0] in oid_to_count_map:
+                    row[1] = oid_to_count_map[row[0]]
+                    updated_count += 1
+                else:
+                    row[1] = 0
+                cursor.updateRow(row)
+
+        arcpy.DeleteField_management(buildings_fc, temp_field)
+        logging.info(f"Updated {updated_count} buildings with bootstrap counts")
+    except Exception as e:
+        logging.error(f"Error updating bootstrap counts: {e}")
+
+    elapsed = time.time() - start_time
+    logging.info(f"Completed bootstrap count updates in {elapsed:.2f} seconds")
+    return buildings_fc
+
+def create_policy_spatial_data(buildings_data: dict, building_counts: dict, fema_policies: list,
+                               output_fc: str, value_tolerance: float, elevation_tolerance: float,
+                               year_tolerance: int) -> str:
+    start_time = time.time()
+    logging.info("Creating policy spatial data...")
+
+    buildings_dict = buildings_data["buildings_dict"]
+    buildings_by_zip_fz = buildings_data["buildings_by_zip_fz"]
+    building_coords = buildings_data["building_coords"]
+    spatial_ref = buildings_data["spatial_reference"]
+
+    if arcpy.Exists(output_fc):
+        delete_if_exists(output_fc)
+        output_fc = f"{output_fc}_2"
+
+    try:
+        arcpy.CreateFeatureclass_management(arcpy.env.workspace, output_fc, "POINT",
+                                            spatial_reference=spatial_ref)
+        arcpy.AddField_management(output_fc, "PolicyID", "TEXT")
+        arcpy.AddField_management(output_fc, "Centroid_X", "DOUBLE")
+        arcpy.AddField_management(output_fc, "Centroid_Y", "DOUBLE")
+        arcpy.AddField_management(output_fc, "Medoid_X", "DOUBLE")
+        arcpy.AddField_management(output_fc, "Medoid_Y", "DOUBLE")
+        arcpy.AddField_management(output_fc, "MatchCount", "LONG")
+    except Exception as e:
+        logging.error(f"Error creating policy spatial data feature class: {e}")
+        output_fc = None
+
+    # Group by ZIP,FZ
+    policies_by_zip_fz = {}
+    for policy in fema_policies:
+        p_zip = policy["ZIP"] if policy["ZIP"] else "00000"
+        p_fz = policy["FloodZone"] if policy["FloodZone"] else "UNKNOWN"
+        key = (p_zip, p_fz)
+        policies_by_zip_fz.setdefault(key, []).append(policy)
+
+    unique_keys = set(list(buildings_by_zip_fz.keys()) + list(policies_by_zip_fz.keys()))
+    logging.info(f"Processing {len(unique_keys)} unique ZIP/FloodZone combos")
+
+    results = []
+    policies_with_matches = 0
+    for i, key in enumerate(unique_keys):
+        if key not in policies_by_zip_fz or key not in buildings_by_zip_fz:
+            continue
+        policies = policies_by_zip_fz[key]
+        potential_buildings = buildings_by_zip_fz[key]
+        if not potential_buildings:
+            continue
+
+        building_attributes = {}
+        for bldg_id in potential_buildings:
+            if bldg_id in buildings_dict and bldg_id in building_coords:
+                b_info = buildings_dict[bldg_id]
+                building_attributes[bldg_id] = {
+                    "value": b_info["Total_Asse"],
+                    "elevation": b_info["ELEVATION"],
+                    "year": b_info["BuildYear"],
+                    "coords": building_coords[bldg_id]
+                }
+        for policy in policies:
+            if policy["ReplacementCost"] is None:
+                continue
+
+            lower_value = policy["ReplacementCost"] * (1 - value_tolerance)
+            upper_value = policy["ReplacementCost"] * (1 + value_tolerance)
+            matching_buildings = []
+            for bldg_id in potential_buildings:
+                if bldg_id not in building_attributes:
+                    continue
+                attrs = building_attributes[bldg_id]
+                if not (lower_value <= attrs["value"] <= upper_value):
+                    continue
+                if (policy["BaseFloodElevation"] is not None and 
+                    attrs["elevation"] is not None):
+                    low_elev = policy["BaseFloodElevation"] - elevation_tolerance
+                    up_elev  = policy["BaseFloodElevation"] + elevation_tolerance
+                    if not (low_elev <= attrs["elevation"] <= up_elev):
+                        continue
+                if (policy["ConstructionYear"] is not None and 
+                    attrs["year"] is not None):
+                    low_year = policy["ConstructionYear"] - year_tolerance
+                    up_year  = policy["ConstructionYear"] + year_tolerance
+                    if not (low_year <= attrs["year"] <= up_year):
+                        continue
+                matching_buildings.append(bldg_id)
+            if matching_buildings and len(matching_buildings) >= 2:
+                coords = [building_attributes[b]["coords"] for b in matching_buildings]
+                coords_array = np.array(coords)
+                centroid = coords_array.mean(axis=0)
+                medoid = calculate_medoid_efficient(coords_array)
+                results.append({
+                    "PolicyID": policy["ClaimID"],
+                    "Centroid_X": float(centroid[0]),
+                    "Centroid_Y": float(centroid[1]),
+                    "Medoid_X": float(medoid[0]),
+                    "Medoid_Y": float(medoid[1]),
+                    "MatchCount": len(matching_buildings)
+                })
+                policies_with_matches += 1
+
+        if (i + 1) % 10 == 0 or (i + 1) == len(unique_keys):
+            logging.info(f"  - Processed {i + 1}/{len(unique_keys)} grouping keys")
+
+    # CSV
+    csv_path = os.path.join(OUTPUT_DIR, "PolicySpatialData.csv")
+    export_to_csv(
+        data=[[r["PolicyID"], r["Centroid_X"], r["Centroid_Y"], 
+               r["Medoid_X"], r["Medoid_Y"], r["MatchCount"]] for r in results],
+        headers=["PolicyID", "Centroid_X", "Centroid_Y", "Medoid_X", "Medoid_Y", "MatchCount"],
+        output_path=csv_path
+    )
+
+    if output_fc and arcpy.Exists(output_fc):
+        logging.info(f"Inserting {len(results)} records into {output_fc}...")
+        try:
+            with arcpy.da.InsertCursor(output_fc, 
+                ["SHAPE@XY", "PolicyID", "Centroid_X", "Centroid_Y", "Medoid_X", "Medoid_Y", "MatchCount"]) as cursor:
+                for r in results:
+                    cursor.insertRow([
+                        (r["Centroid_X"], r["Centroid_Y"]),
+                        r["PolicyID"],
+                        r["Centroid_X"],
+                        r["Centroid_Y"],
+                        r["Medoid_X"],
+                        r["Medoid_Y"],
+                        r["MatchCount"]
+                    ])
+        except Exception as e:
+            logging.error(f"Error inserting records: {e}")
+
+    elapsed = time.time() - start_time
+    logging.info(f"Processed spatial data for {policies_with_matches} policies in {elapsed:.2f} seconds")
+    return output_fc or csv_path
+
+# ---------------------------------------------------------
+# 5. Parameter Sampling
+# ---------------------------------------------------------
+
+def sample_parameter_sets(num_samples=50):
+    """
+    Generates a stratified random sample of parameter sets across each dimension's
+    discrete options. We'll shuffle and cycle each dimension, then zip them up.
+    """
+    random.seed(42)
+
+    # Shuffle each dimension
+    vts = VALUE_TOLS[:]; random.shuffle(vts)
+    ets = ELEV_TOLS[:]; random.shuffle(ets)
+    yts = YEAR_TOLS[:]; random.shuffle(yts)
+    ids = INUN_DISTS[:]; random.shuffle(ids)
+    bs  = BOOTSTRAP_ITERS[:]; random.shuffle(bs)
+    zf  = ZIP_FLAGS[:]; random.shuffle(zf)
+    ef  = ELEV_FLAGS[:]; random.shuffle(ef)
+    yf  = YEAR_FLAGS[:]; random.shuffle(yf)
+
+    def cycle_list(lst, n):
+        out = []
+        i = 0
+        for _ in range(n):
+            out.append(lst[i % len(lst)])
+            i += 1
+        return out
+
+    vts_samp = cycle_list(vts, num_samples)
+    ets_samp = cycle_list(ets, num_samples)
+    yts_samp = cycle_list(yts, num_samples)
+    ids_samp = cycle_list(ids, num_samples)
+    bs_samp  = cycle_list(bs, num_samples)
+    zf_samp  = cycle_list(zf, num_samples)
+    ef_samp  = cycle_list(ef, num_samples)
+    yf_samp  = cycle_list(yf, num_samples)
+
+    combined = list(zip(vts_samp, ets_samp, yts_samp, ids_samp, bs_samp,
+                        zf_samp, ef_samp, yf_samp))
+    random.shuffle(combined)
+
+    parameter_sets = []
+    for i in range(num_samples):
+        vt, et, yt, dist, bsi, zipf, elevf, yearf = combined[i]
+        parameter_sets.append({
+            "value_tol": vt,
+            "elev_tol": et,
+            "year_tol": yt,
+            "inun_dist": dist,
+            "bootstrap_iterations": bsi,
+            "use_zip": zipf,
+            "use_elevation": elevf,
+            "use_year": yearf
+        })
+    return parameter_sets
+
+# ---------------------------------------------------------
+# 6. Main run_experiments
+# ---------------------------------------------------------
+
+def run_experiments():
+    """
+    Runs a smaller number of parameter sets chosen by a stratified-random approach,
+    capturing all the same outputs (building-level, policy-level, and summary CSVs).
+    """
+
+    param_sets = sample_parameter_sets(num_samples=NUM_SAMPLES)
+    summary_rows = []
+    timestamp_str = time.strftime("%Y%m%d_%H%M%S")
+
+    if not os.path.exists(OUTPUT_DIR):
+        os.makedirs(OUTPUT_DIR)
+
+    for i, params in enumerate(param_sets, start=1):
+        val_tol = params["value_tol"]
+        elev_tol = params["elev_tol"]
+        year_tol = params["year_tol"]
+        inun_dist = params["inun_dist"]
+        bs_iterations = params["bootstrap_iterations"]
+        use_zip = params["use_zip"]
+        use_elev = params["use_elevation"]
+        use_year = params["use_year"]
+
+        logging.info(f"\n== Running analysis {i}/{len(param_sets)} ==\n"
+                     f" value_tol={val_tol}, elev_tol={elev_tol}, year_tol={year_tol}, "
+                     f" inun_dist={inun_dist}, bs_iterations={bs_iterations}, "
+                     f" use_zip={use_zip}, use_elevation={use_elev}, use_year={use_year}")
+
+        t0 = time.time()
+        arcpy.env.workspace = WORKSPACE
+        arcpy.env.overwriteOutput = True
+
+        # 1. Prepare building data
+        buildings_data = prepare_buildings_data(BUILDINGS_FC, BOOTSTRAP_FIELD, INUNDATION_FC, inun_dist)
+        if not buildings_data:
+            logging.error("No valid building data. Skipping these parameters.")
+            continue
+
+        # 2. Load FEMA policies
+        fema_policies = load_fema_policies(FEMA_TABLE)
+        if not fema_policies:
+            logging.error("No valid FEMA policies. Skipping these parameters.")
+            continue
+
+        # 3. Match policies (bootstrap)
+        building_counts = match_policies_to_buildings(
+            fema_policies,
+            buildings_data,
+            val_tol,
+            elev_tol,
+            year_tol,
+            bs_iterations,
+            use_zip=use_zip,
+            use_elevation=use_elev,
+            use_year=use_year
+        )
+
+        # 4. Update building feature class with counts
+        updated_buildings_fc = update_building_bootstrap_counts(buildings_data, building_counts, BOOTSTRAP_FIELD)
+
+        # 5. Create policy spatial data
+        policy_spatial_fc = create_policy_spatial_data(
+            buildings_data,
+            building_counts,
+            fema_policies,
+            OUTPUT_FC,
+            val_tol,
+            elev_tol,
+            year_tol
+        )
+
+        # 6. Compute summary stats
+        elapsed = time.time() - t0
+        total_bldg_count = len(buildings_data["buildings_dict"])
+        non_zero_count = sum(1 for c in building_counts.values() if c > 0)
+        total_policy_count = len(fema_policies)
+        matched_policy_count = get_matched_policy_count(fema_policies, buildings_data,
+                                                        val_tol, elev_tol, year_tol,
+                                                        use_zip, use_elev, use_year)
+        distribution_summary = summarize_bootstrap_distribution(building_counts)
+        spatial_metrics = compute_spatial_metrics(buildings_data, building_counts)
+
+        rowdict = {
+            "run_index": i,
+            "value_tol": val_tol,
+            "elev_tol": elev_tol,
+            "year_tol": year_tol,
+            "inun_dist": inun_dist,
+            "bootstrap_iterations": bs_iterations,
+            "use_zip": use_zip,
+            "use_elevation": use_elev,
+            "use_year": use_year,
+            "num_buildings_in_analysis": total_bldg_count,
+            "num_policies_in_analysis": total_policy_count,
+            "num_policies_with_matches": matched_policy_count,
+            "num_buildings_with_nonzero_count": non_zero_count,
+            "bootstrap_min": distribution_summary["min"],
+            "bootstrap_max": distribution_summary["max"],
+            "bootstrap_mean": distribution_summary["mean"],
+            "bootstrap_median": distribution_summary["median"],
+            "bootstrap_std": distribution_summary["std"],
+            "bootstrap_25_percentile": distribution_summary["25_percentile"],
+            "bootstrap_75_percentile": distribution_summary["75_percentile"],
+            "mean_center_x": spatial_metrics.get("mean_center_x", None),
+            "mean_center_y": spatial_metrics.get("mean_center_y", None),
+            "std_distance": spatial_metrics.get("std_distance", None),
+            "convex_hull_area": spatial_metrics.get("convex_hull_area", None),
+            "observed_nn": spatial_metrics.get("observed_nn", None),
+            "expected_nn": spatial_metrics.get("expected_nn", None),
+            "NNI": spatial_metrics.get("NNI", None),
+            "moran_I": spatial_metrics.get("moran_I", None),
+            "runtime_seconds": elapsed
+        }
+        summary_rows.append(rowdict)
+
+        # 7. Export building-level CSV
+        bldg_csv_name = (f"BuildingResults_ValTol_{val_tol}_ElevTol_{elev_tol}_YearTol_{year_tol}_"
+                         f"Dist_{inun_dist}_BS_{bs_iterations}_UseZip_{use_zip}_UseElev_{use_elev}_UseYear_{use_year}_"
+                         f"{timestamp_str}.csv")
+        bldg_csv_path = os.path.join(OUTPUT_DIR, bldg_csv_name)
+        try:
+            with open(bldg_csv_path, 'w', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow(["BldgID", "BootstrapCount"])
+                for bldg_id, count in building_counts.items():
+                    writer.writerow([bldg_id, count])
+            logging.info(f"Exported building-level results to {bldg_csv_path}")
+        except Exception as e:
+            logging.error(f"Error writing building-level CSV: {e}")
+
+        # 8. Export policy-level CSV
+        policy_csv_name = (f"PolicyResults_ValTol_{val_tol}_ElevTol_{elev_tol}_YearTol_{year_tol}_"
+                           f"Dist_{inun_dist}_BS_{bs_iterations}_UseZip_{use_zip}_UseElev_{use_elev}_UseYear_{use_year}_"
+                           f"{timestamp_str}.csv")
+        policy_csv_path = os.path.join(OUTPUT_DIR, policy_csv_name)
+        try:
+            with open(policy_csv_path, 'w', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow(["ClaimID", "ZIP", "FloodZone", "ReplacementCost",
+                                 "BaseFloodElevation", "ConstructionYear"])
+            with open(policy_csv_path, 'a', newline='') as f:
+                writer = csv.writer(f)
+                for pol in fema_policies:
+                    writer.writerow([
+                        pol["ClaimID"],
+                        pol["ZIP"],
+                        pol["FloodZone"],
+                        pol["ReplacementCost"],
+                        pol["BaseFloodElevation"],
+                        pol["ConstructionYear"]
+                    ])
+            logging.info(f"Exported policy-level results to {policy_csv_path}")
+        except Exception as e:
+            logging.error(f"Error writing policy-level CSV: {e}")
+
+    # 9. Master summary CSV
+    summary_csv_name = f"SummaryResults_{timestamp_str}.csv"
+    summary_csv_path = os.path.join(OUTPUT_DIR, summary_csv_name)
+    summary_col_order = [
+        "run_index",
+        "value_tol", "elev_tol", "year_tol", "inun_dist", "bootstrap_iterations",
+        "use_zip", "use_elevation", "use_year",
+        "num_buildings_in_analysis", "num_policies_in_analysis", "num_policies_with_matches",
+        "num_buildings_with_nonzero_count",
+        "bootstrap_min", "bootstrap_max", "bootstrap_mean", "bootstrap_median", "bootstrap_std",
+        "bootstrap_25_percentile", "bootstrap_75_percentile",
+        "mean_center_x", "mean_center_y", "std_distance", "convex_hull_area",
+        "observed_nn", "expected_nn", "NNI", "moran_I",
+        "runtime_seconds"
+    ]
+    try:
+        with open(summary_csv_path, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(summary_col_order)
+            for rowdict in summary_rows:
+                writer.writerow([rowdict[col] for col in summary_col_order])
+        logging.info(f"Exported master summary results to {summary_csv_path}")
+    except Exception as e:
+        logging.error(f"Error writing summary CSV: {e}")
+
+    logging.info("All sampled experiments completed.")
+
+
+# ---------------------------------------------------------
+# ENTRY POINT
+# ---------------------------------------------------------
+if __name__ == "__main__":
+    run_experiments()
