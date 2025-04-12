@@ -1,0 +1,1168 @@
+# --- Imports ---
+import arcpy
+import numpy as np
+import os
+import datetime
+import time
+import pprint
+import traceback
+from collections import defaultdict
+
+# --- Attempt to import scikit-learn metrics ---
+try:
+    from sklearn.metrics import (
+        average_precision_score,
+        brier_score_loss,
+        log_loss,
+        roc_auc_score # Using sklearn's version for consistency if available
+    )
+    sklearn_available = True
+    print("Successfully imported scikit-learn metrics.")
+except ImportError:
+    sklearn_available = False
+    print("Warning: scikit-learn not found. Cannot calculate PR-AUC, Brier Score, or Log Loss.")
+    print("Will use manual ROC AUC calculation if possible.")
+
+print("Starting Bootstrap Pipeline Script with Probabilistic Metrics...")
+
+# --- Configuration Dictionary (Example - SAME AS BEFORE) ---
+config = {
+    "base_run_name": "Run8_ProbabilisticMetrics", # Changed run name slightly
+    "n_iterations_to_test": [100, 500, 1000, 5000, 10000],
+    "workspace": r"C:\Mac\Home\Documents\ArcGIS\Projects\NFIP Dodge County\NFIP Dodge County.gdb",
+    "buildings": {
+        "path": r"C:\Mac\Home\Documents\ArcGIS\Projects\NFIP Dodge County\NFIP Dodge County.gdb\Buildings",
+        "id_field": "BldgID",
+        "parcel_id_field": "Parcel_ID",
+        "zip_field": "ZIP",
+        "fz_field": "FloodZone",
+        "value_field": "Total_Asse",
+        "elev_field": "ELEVATION",
+        "zone_field": "Zone",
+        "filter_zone_value": 1,
+        "filter_largest_bldg_per_parcel": True,
+        "required_fields": ["BldgID", "Parcel_ID", "ZIP", "FloodZone", "Total_Asse", "ELEVATION", "Zone"]
+    },
+    "claims": {
+        "path": r"C:\Mac\Home\Documents\ArcGIS\Projects\NFIP Dodge County\NFIP Dodge County.gdb\FEMA_Claims_Nebraska",
+        "id_field": "OBJECTID",
+        "zip_field": "reportedZipCode",
+        "fz_field": "floodZoneCurrent",
+        "value_field": "buildingReplacementCost",
+        "bfe_field": "baseFloodElevation",
+        "event_filter_field": "March_2019_Midwest_Flooding",
+        "event_filter_value": 1,
+        "required_fields": ["OBJECTID", "reportedZipCode", "floodZoneCurrent", "buildingReplacementCost", "baseFloodElevation", "March_2019_Midwest_Flooding"]
+    },
+    "accuracy": {
+        "inundation_layer_name": r"C:\Mac\Home\Documents\ArcGIS\Projects\NFIP Dodge County\NFIP Dodge County.gdb\InundationPolygon",
+        "buffer_distances": [0, 50, 100, 250, 500],
+        "buffer_units": "Feet"
+    },
+    "parameters": {
+        "value_tolerance_percent": None,
+        "elevation_tolerance_abs": 1.0,
+        "n_iterations": None
+    },
+    "outputs": {
+        "output_gdb": None,
+        "output_table_name_pattern": "BootstrapCounts_{base_run_name}_{ts}",
+        "report_file_name_pattern": "Pipeline_Report_{base_run_name}_{ts}.txt"
+    }
+}
+
+
+# --- Helper Functions (Keep validate_inputs, load_prepare_buildings, load_prepare_claims, find_matching_buildings, run_policy_bootstrap, calculate_stats, write_output_table AS BEFORE) ---
+# --- They are omitted here for brevity but should be included in the full script ---
+
+# --- START: Keep unmodified helper functions here ---
+def validate_inputs(config):
+    # ... (Keep original code) ...
+    print("Validating inputs...")
+    workspace = config.get("workspace")
+    if not workspace:
+        raise ValueError("Workspace path cannot be empty in config.")
+
+    if workspace.upper() == "CURRENT":
+        try:
+            aprx = arcpy.mp.ArcGISProject("CURRENT")
+            default_gdb = aprx.defaultGeodatabase
+            if not default_gdb:
+                raise ValueError("Could not determine default GDB from 'CURRENT' project.")
+            config["outputs"]["output_gdb"] = default_gdb
+            arcpy.env.workspace = default_gdb
+            print(f"Using workspace from current project: {default_gdb}")
+        except Exception as e:
+            raise ValueError(f"Error accessing 'CURRENT' project/workspace. Error: {e}")
+    else:
+        if not arcpy.Exists(workspace):
+            raise ValueError(f"Specified workspace does not exist: {workspace}")
+        if not workspace.lower().endswith(".gdb"):
+            raise ValueError(f"Specified workspace must be a File GDB (.gdb): {workspace}")
+        arcpy.env.workspace = workspace
+        config["outputs"]["output_gdb"] = workspace
+        print(f"Using specified workspace: {workspace}")
+
+    # Validate building and claims paths/fields
+    for key in ["buildings", "claims"]:
+        cfg = config[key]
+        path = cfg.get("path")
+        if path and not os.path.isabs(path) and config["outputs"]["output_gdb"]:
+            path = os.path.join(config["outputs"]["output_gdb"], path)
+            cfg["path"] = path
+        if not path or not arcpy.Exists(path):
+            raise ValueError(f"{key.capitalize()} path ('{path}') not found.")
+
+        fields_in_data = [f.name.lower() for f in arcpy.ListFields(path)]
+        required_fields = cfg.get("required_fields", [])
+        if not required_fields:
+            raise ValueError(f"Required fields list for '{key}' is empty.")
+        for field in required_fields:
+            if not field:
+                raise ValueError(f"Empty field name in required_fields for '{key}'.")
+            if field.lower() not in fields_in_data:
+                raise ValueError(f"Required field '{field}' not found in {key.capitalize()} ('{os.path.basename(path)}').")
+
+        # Check largest building logic
+        if key == "buildings" and cfg.get("filter_largest_bldg_per_parcel", False):
+            parcel_id_field = cfg.get("parcel_id_field")
+            if not parcel_id_field or parcel_id_field.lower() not in fields_in_data:
+                raise ValueError(f"Parcel ID field ('{parcel_id_field}') needed for filtering not found.")
+
+    # Validate inundation layer
+    acc_cfg = config["accuracy"]
+    inundation_path = acc_cfg.get("inundation_layer_name")
+    if inundation_path and not os.path.isabs(inundation_path) and config["outputs"]["output_gdb"]:
+        inundation_path = os.path.join(config["outputs"]["output_gdb"], inundation_path)
+        acc_cfg["inundation_layer_name"] = inundation_path
+    if not inundation_path or not arcpy.Exists(inundation_path):
+        raise ValueError(f"Inundation layer ('{inundation_path}') not found.")
+
+    # Validate iteration list
+    if (not isinstance(config.get("n_iterations_to_test"), list) or
+        not all(isinstance(i, int) and i > 0 for i in config["n_iterations_to_test"])):
+        raise ValueError("'n_iterations_to_test' must be a list of positive integers.")
+
+    # Validate buffer distances
+    if (not isinstance(acc_cfg.get("buffer_distances"), list) or
+        not all(isinstance(i, (int, float)) and i >= 0 for i in acc_cfg["buffer_distances"])):
+        raise ValueError("'buffer_distances' must be a list of non-negative numbers.")
+
+    # Generate final report name
+    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M")
+    config["outputs"]["final_report_name"] = config["outputs"]["report_file_name_pattern"].format(
+        base_run_name=config['base_run_name'], ts=ts
+    )
+
+    print("Input validation successful.")
+    return True
+
+def load_prepare_buildings(config):
+    """Loads and filters building data from the feature class."""
+    # ... (Keep original code) ...
+    print("Loading and preparing building data...")
+    bldg_cfg = config["buildings"]
+    fc_path = bldg_cfg["path"]
+    id_fld = bldg_cfg["id_field"]
+    parcel_fld = bldg_cfg.get("parcel_id_field")
+    zone_fld = bldg_cfg.get("zone_field")
+    filter_zone_val = bldg_cfg.get("filter_zone_value")
+    filter_largest = bldg_cfg.get("filter_largest_bldg_per_parcel", False)
+
+    read_fields_set = {"OID@", "SHAPE@"} | set(bldg_cfg["required_fields"])
+    if filter_largest:
+        read_fields_set.add(parcel_fld)
+        read_fields_set.add("SHAPE@AREA")
+    if filter_zone_val is not None:
+        read_fields_set.add(zone_fld)
+
+    read_fields = list(read_fields_set)
+    field_map = {name: idx for idx, name in enumerate(read_fields)}
+
+    buildings_dict = {}
+    buildings_by_group = defaultdict(list)
+    temp_valid_buildings_data = []
+    largest_building_data_per_parcel = {}
+
+    initial_read_count = 0
+    skipped_invalid_data = 0
+    skipped_zone_filter = 0
+    skipped_final_processing = 0
+    final_processed_count = 0
+
+    print(
+        f"Applying Zone Filter: {'Yes (Field: {}, Value: {})'.format(zone_fld, filter_zone_val) if filter_zone_val is not None else 'No'}"
+    )
+    print(f"Applying Largest Building per Parcel Filter: {'Yes' if filter_largest else 'No'}")
+
+    zone_field_obj = None
+    if filter_zone_val is not None and zone_fld:
+        try:
+            zone_field_obj = arcpy.ListFields(fc_path, zone_fld)[0]
+        except IndexError:
+            raise ValueError(f"Zone filter field '{zone_fld}' not found.")
+
+    with arcpy.da.SearchCursor(fc_path, read_fields) as cursor:
+        for row in cursor:
+            initial_read_count += 1
+            try:
+                bldg_id = row[field_map[id_fld]]
+                zip_code = row[field_map[bldg_cfg["zip_field"]]]
+                flood_zone = row[field_map[bldg_cfg["fz_field"]]]
+                total_asse = row[field_map[bldg_cfg["value_field"]]]
+
+                if (bldg_id is None or zip_code is None or str(zip_code).strip() == "" or
+                    flood_zone is None or str(flood_zone).strip() == "" or total_asse is None):
+                    raise ValueError("Missing required basic attribute (ID, ZIP, FZ, Value)")
+
+                if filter_zone_val is not None and zone_field_obj:
+                    zone_val = row[field_map[zone_fld]]
+                    match = False
+                    if zone_val is not None:
+                        if zone_field_obj.type in ['String', 'GUID']:
+                            match = str(zone_val).strip() == str(filter_zone_val).strip()
+                        elif zone_field_obj.type in ['Double', 'Single', 'Integer', 'SmallInteger']:
+                            match = float(zone_val) == float(filter_zone_val)
+                    if not match:
+                        skipped_zone_filter += 1
+                        continue
+
+                if filter_largest:
+                    parcel_id = row[field_map[parcel_fld]]
+                    area_val = row[field_map["SHAPE@AREA"]]
+                    if parcel_id is None or area_val is None or area_val <= 0:
+                        raise ValueError("Invalid ParcelID or area for largest building filter")
+                    current_largest = largest_building_data_per_parcel.get(parcel_id)
+                    if current_largest is None or area_val > current_largest['area']:
+                        largest_building_data_per_parcel[parcel_id] = {'area': area_val, 'data_row': row}
+                else:
+                    temp_valid_buildings_data.append(row)
+
+            except (TypeError, ValueError, IndexError, KeyError):
+                skipped_invalid_data += 1
+                continue
+
+    # If largest building filter is used, keep only the largest
+    if filter_largest:
+        data_to_process = [d['data_row'] for d in largest_building_data_per_parcel.values()]
+    else:
+        data_to_process = temp_valid_buildings_data
+
+    for data_row in data_to_process:
+        try:
+            oid = data_row[field_map["OID@"]]
+            bldg_id = data_row[field_map[id_fld]]
+            shape_geom = data_row[field_map["SHAPE@"]]
+            if shape_geom is None or shape_geom.area == 0:
+                raise ValueError("Empty geometry")
+
+            zip_code = str(data_row[field_map[bldg_cfg["zip_field"]]]).strip().zfill(5)
+            flood_zone = str(data_row[field_map[bldg_cfg["fz_field"]]]).strip().upper()
+            total_asse = float(data_row[field_map[bldg_cfg["value_field"]]])
+            try:
+                elevation = float(data_row[field_map[bldg_cfg["elev_field"]]])
+            except:
+                elevation = None
+
+            buildings_dict[bldg_id] = {
+                "OID": oid,
+                "SHAPE": shape_geom,
+                "ZIP": zip_code,
+                "FloodZone": flood_zone,
+                "Total_Asse": total_asse,
+                "ELEVATION": elevation
+            }
+            # Group by (zip, flood_zone)
+            buildings_by_group[(zip_code, flood_zone)].append(bldg_id)
+            final_processed_count += 1
+
+        except:
+            skipped_final_processing += 1
+            continue
+
+    stats = {
+        "initial_read": initial_read_count,
+        "skipped_invalid_data": skipped_invalid_data,
+        "skipped_zone_filter": skipped_zone_filter,
+        "skipped_final_processing": skipped_final_processing,
+        "final_processed_count": final_processed_count
+    }
+    print(f"Final Building Data Loaded: {final_processed_count} buildings processed.")
+    if final_processed_count == 0:
+        raise ValueError("No valid buildings remain after filtering.")
+
+    return buildings_dict, buildings_by_group, stats
+
+def load_prepare_claims(config):
+    """Loads, filters, and prepares claims data."""
+    # ... (Keep original code) ...
+    print("Loading and preparing claims data...")
+    claims_cfg = config["claims"]
+    table_path = claims_cfg["path"]
+    id_fld = claims_cfg["id_field"]
+    zip_fld = claims_cfg["zip_field"]
+    fz_fld = claims_cfg["fz_field"]
+    val_fld = claims_cfg["value_field"]
+    bfe_fld = claims_cfg["bfe_field"]
+    event_fld = claims_cfg.get("event_filter_field")
+    event_val = claims_cfg.get("event_filter_value")
+
+    where_clause = None
+    if event_fld and event_val is not None:
+        try:
+            field_obj = arcpy.ListFields(table_path, event_fld)[0]
+            delim_fld = arcpy.AddFieldDelimiters(table_path, event_fld)
+            if field_obj.type in ['String', 'GUID', 'Date']:
+                where_clause = f"{delim_fld} = '{event_val}'"
+            else:
+                where_clause = f"{delim_fld} = {event_val}"
+            print(f"Applying claims filter: {where_clause}")
+        except IndexError:
+            print(f"Warning: Event filter field '{event_fld}' not found. Loading all claims.")
+        except Exception as e:
+            print(f"Warning: Could not apply event filter: {e}. Loading all claims.")
+
+    read_fields = list(set([id_fld, zip_fld, fz_fld, val_fld, bfe_fld] + ([event_fld] if event_fld else [])))
+    fema_policies = []
+    processed_count = 0
+    skipped_count = 0
+
+    with arcpy.da.SearchCursor(table_path, read_fields, where_clause=where_clause) as cursor:
+        field_map_claims = {name.upper(): idx for idx, name in enumerate(cursor.fields)}
+        for row in cursor:
+            try:
+                policy_id = row[field_map_claims[id_fld.upper()]]
+                zip_code = row[field_map_claims[zip_fld.upper()]]
+                flood_zone = row[field_map_claims[fz_fld.upper()]]
+                replacement_cost = row[field_map_claims[val_fld.upper()]]
+                bfe = row[field_map_claims[bfe_fld.upper()]]
+
+                if policy_id is None:
+                    raise ValueError("Missing Policy ID")
+                if zip_code is None:
+                    raise ValueError("Missing ZIP Code")
+                zip_code = str(zip_code).strip().zfill(5)
+
+                if flood_zone is None:
+                    raise ValueError("Missing Flood Zone")
+                flood_zone = str(flood_zone).strip().upper()
+
+                replacement_cost = float(replacement_cost)
+                try:
+                    bfe = float(bfe)
+                except:
+                    bfe = None
+
+                fema_policies.append({
+                    "PolicyID": policy_id,
+                    "ZIP": zip_code,
+                    "FloodZone": flood_zone,
+                    "ReplacementCost": replacement_cost,
+                    "BaseFloodElevation": bfe
+                })
+                processed_count += 1
+            except:
+                skipped_count += 1
+                continue
+
+    print(f"Processed {processed_count} claims, skipped {skipped_count}.")
+    if processed_count == 0:
+        print("Warning: No valid claims loaded (maybe the filter removed all?).")
+
+    stats = {"processed": processed_count, "skipped": skipped_count}
+    return fema_policies, stats
+
+def find_matching_buildings(policy, buildings_dict, buildings_by_group, params):
+    """Match buildings by ZIP, Flood Zone, and (optionally) BFE ± tolerance."""
+    # ... (Keep original code) ...
+    matching_buildings = []
+    key = (policy["ZIP"], policy["FloodZone"])
+    potential_bldg_ids = buildings_by_group.get(key, [])
+    if not potential_bldg_ids:
+        return matching_buildings
+
+    elev_tol = params.get("elevation_tolerance_abs")
+    policy_bfe = policy.get("BaseFloodElevation")
+    check_bfe = (policy_bfe is not None and elev_tol is not None)
+
+    if check_bfe:
+        lower_elev = policy_bfe - elev_tol
+        upper_elev = policy_bfe + elev_tol
+
+    for bldg_id in potential_bldg_ids:
+        bldg_info = buildings_dict.get(bldg_id)
+        if not bldg_info:
+            continue
+        if check_bfe:
+            bldg_elev = bldg_info.get("ELEVATION")
+            if bldg_elev is None:
+                continue
+            if not (lower_elev <= bldg_elev <= upper_elev):
+                continue
+        matching_buildings.append(bldg_id)
+
+    return matching_buildings
+
+def run_policy_bootstrap(matching_buildings, n_iterations):
+    """Bootstrap sampling for a list of matched buildings."""
+    # ... (Keep original code) ...
+    if not matching_buildings:
+        return {}
+    samples = np.random.choice(matching_buildings, size=n_iterations, replace=True)
+    unique, counts = np.unique(samples, return_counts=True)
+    return dict(zip(unique, counts))
+
+def calculate_stats(data_list):
+    """Basic numeric stats: mean, median, std, min, max, count."""
+    # ... (Keep original code) ...
+    if not data_list:
+        return {'mean': 'N/A', 'median': 'N/A', 'std_dev': 'N/A', 'min': 'N/A', 'max': 'N/A', 'count': 0}
+    arr = np.array(data_list)
+    return {
+        'mean': round(np.mean(arr), 3),
+        'median': round(np.median(arr), 3),
+        'std_dev': round(np.std(arr), 3),
+        'min': float(np.min(arr)),
+        'max': float(np.max(arr)),
+        'count': len(arr)
+    }
+
+def write_output_table(config, all_iteration_counts):
+    # ... (Keep original code) ...
+    print("Writing output table with counts for all iterations...")
+    out_gdb = config["outputs"]["output_gdb"]
+    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M")
+    out_table_name_pattern = config["outputs"]["output_table_name_pattern"]
+    out_table_name = arcpy.ValidateTableName(
+        out_table_name_pattern.format(base_run_name=config['base_run_name'], ts=ts), out_gdb
+    )
+    out_table_path = os.path.join(out_gdb, out_table_name)
+
+    bldg_id_field = config["buildings"]["id_field"]
+    bldg_fc_path = config["buildings"]["path"]
+
+    bldg_id_field_type = "TEXT"
+    try:
+        field_obj = next((f for f in arcpy.ListFields(bldg_fc_path, bldg_id_field)), None)
+        if field_obj:
+            oid_field_type = field_obj.type
+            if oid_field_type in ['Integer', 'SmallInteger', 'OID']:
+                bldg_id_field_type = "LONG"
+            elif oid_field_type in ['Double', 'Single']:
+                bldg_id_field_type = "DOUBLE"
+    except Exception as desc_err:
+        print(f"Warning: Could not determine type for {bldg_id_field}. Error: {desc_err}")
+
+    if arcpy.Exists(out_table_path):
+        print(f"Deleting existing output table: {out_table_path}")
+        arcpy.management.Delete(out_table_path)
+
+    print(f"Creating output table: {out_table_path}")
+    arcpy.management.CreateTable(out_gdb, out_table_name)
+    arcpy.management.AddField(out_table_path, bldg_id_field, bldg_id_field_type, field_alias=bldg_id_field)
+
+    iteration_fields = []
+    for n_iter in config["n_iterations_to_test"]:
+        count_field_name = f"Count_{n_iter}Iter"
+        valid_count_field_name = arcpy.ValidateFieldName(count_field_name, out_gdb)
+        arcpy.management.AddField(out_table_path, valid_count_field_name, "LONG",
+                                  field_alias=f"Bootstrap Count ({n_iter} Iter)")
+        iteration_fields.append(valid_count_field_name)
+
+    all_counted_bldg_ids = set().union(*(iter_counts.keys() for iter_counts in all_iteration_counts.values()))
+    if not all_counted_bldg_ids:
+        print("No buildings received counts. Output table will be empty.")
+        return out_table_path
+
+    print(f"Inserting counts for {len(all_counted_bldg_ids)} buildings into {out_table_name}...")
+    insert_fields = [bldg_id_field] + iteration_fields
+    insert_count = 0
+    with arcpy.da.InsertCursor(out_table_path, insert_fields) as i_cursor:
+        for bldg_id in sorted(list(all_counted_bldg_ids)):
+            new_row = [bldg_id] + [
+                all_iteration_counts.get(n_iter, {}).get(bldg_id, 0)
+                for n_iter in config["n_iterations_to_test"]
+            ]
+            try:
+                i_cursor.insertRow(new_row)
+                insert_count += 1
+            except Exception as insert_err:
+                print(f"Warning: Failed to insert row for BldgID {bldg_id}. Error: {insert_err}")
+
+    print(f"Inserted {insert_count} rows into {out_table_name}.")
+    return out_table_path
+# --- END: Keep unmodified helper functions here ---
+
+
+# --- Remove Original Threshold-Based Metrics Function ---
+# def calculate_accuracy_metrics(tp, fp, fn, tn):
+#     """Computes sensitivity, specificity, precision, F1, etc."""
+#     # -- REMOVED --
+
+
+# --- Keep/Modify ROC AUC Calculation ---
+def calculate_roc_auc(predicted_scores, true_labels):
+    """
+    Calculates ROC AUC. Uses sklearn if available, otherwise manual method.
+    Returns 'N/A' if not enough info or calculation fails.
+    """
+    if len(predicted_scores) == 0 or len(predicted_scores) != len(true_labels):
+        return 'N/A'
+    if all(x == true_labels[0] for x in true_labels): # Handle cases with only one class
+        return 'N/A (Only one class present)'
+
+    try:
+        if sklearn_available:
+            auc_val = roc_auc_score(true_labels, predicted_scores)
+            return round(auc_val, 4)
+        else:
+            # Manual calculation (Trapezoidal Rule) if sklearn not found
+            data = list(zip(predicted_scores, true_labels))
+            data.sort(key=lambda x: x[0], reverse=True)
+
+            total_pos = sum(true_labels)
+            total_neg = len(true_labels) - total_pos
+            tprs = [0.0]
+            fprs = [0.0]
+            current_tp = 0
+            current_fp = 0
+
+            for (score, label) in data:
+                if label == 1:
+                    current_tp += 1
+                else:
+                    current_fp += 1
+                tprs.append(current_tp / total_pos if total_pos > 0 else 0.0)
+                fprs.append(current_fp / total_neg if total_neg > 0 else 0.0)
+
+            auc = 0.0
+            for i in range(len(tprs) - 1):
+                x1, x2 = fprs[i], fprs[i+1]
+                y1, y2 = tprs[i], tprs[i+1]
+                auc += (x2 - x1) * (y1 + y2) / 2.0
+            return round(auc, 4)
+    except Exception as e:
+        print(f"  Warning: ROC AUC calculation failed: {e}")
+        return 'N/A'
+
+# --- Add New Probabilistic Metric Functions ---
+def calculate_pr_auc(predicted_scores, true_labels):
+    """ Calculates Precision-Recall AUC (Average Precision). Requires sklearn. """
+    if not sklearn_available:
+        return 'N/A (requires scikit-learn)'
+    if len(predicted_scores) == 0 or len(predicted_scores) != len(true_labels):
+        return 'N/A'
+    if all(x == 0 for x in true_labels): # Handle cases with no positive labels
+         return 'N/A (No positive labels)'
+    if all(x == 1 for x in true_labels): # Handle cases with only positive labels
+         return 'N/A (Only positive labels)'
+
+    try:
+        ap = average_precision_score(true_labels, predicted_scores)
+        return round(ap, 4)
+    except Exception as e:
+        print(f"  Warning: PR AUC (Average Precision) calculation failed: {e}")
+        return 'N/A'
+
+def calculate_brier_score(predicted_scores, true_labels):
+    """ Calculates Brier Score Loss. Requires sklearn. Lower is better."""
+    if not sklearn_available:
+        return 'N/A (requires scikit-learn)'
+    if len(predicted_scores) == 0 or len(predicted_scores) != len(true_labels):
+        return 'N/A'
+
+    try:
+        # Ensure probabilities are within [0, 1] for Brier score
+        scores_array = np.array(predicted_scores)
+        scores_array = np.clip(scores_array, 0.0, 1.0) # Clip to handle potential floating point issues
+        bs = brier_score_loss(true_labels, scores_array)
+        return round(bs, 4)
+    except Exception as e:
+        print(f"  Warning: Brier Score calculation failed: {e}")
+        return 'N/A'
+
+def calculate_log_loss_metric(predicted_scores, true_labels):
+    """ Calculates Log Loss (Cross-Entropy). Requires sklearn. Lower is better."""
+    if not sklearn_available:
+        return 'N/A (requires scikit-learn)'
+    if len(predicted_scores) == 0 or len(predicted_scores) != len(true_labels):
+        return 'N/A'
+    if all(x == true_labels[0] for x in true_labels): # Cannot compute log loss if only one class
+         return 'N/A (Only one class present)'
+
+    try:
+        # Log loss requires probabilities strictly between 0 and 1.
+        # Clip values to avoid infinity/NaN issues.
+        scores_array = np.array(predicted_scores)
+        eps = 1e-15 # Epsilon for clipping
+        scores_array = np.clip(scores_array, eps, 1 - eps)
+        ll = log_loss(true_labels, scores_array, eps=eps)
+        return round(ll, 4)
+    except Exception as e:
+        print(f"  Warning: Log Loss calculation failed: {e}")
+        return 'N/A'
+
+# --- Keep Spatial Distribution Metrics Function AS BEFORE ---
+def calculate_spatial_distribution_metrics(
+    bldg_ids_with_counts, buildings_data, counts_dict, spatial_reference, output_gdb, temp_fc_base_name
+):
+    """
+    Calculates the spatial metrics (Mean Center, Standard Distance, etc.) using only positional arguments
+    to avoid "got an unexpected keyword argument" errors in older ArcPy versions.
+    """
+    # ... (Keep original code) ...
+    metric_keys = [
+        'point_count', 'valid_point_count', 'mean_center_x', 'mean_center_y',
+        'std_distance', 'convex_hull_area', 'observed_nn', 'expected_nn', 'nni',
+        'moran_i', 'moran_i_z', 'moran_i_p'
+    ]
+    metrics = {key: 'N/A' for key in metric_keys}
+    metrics['point_count'] = len(bldg_ids_with_counts)
+
+    min_points_for_dist = 2
+    min_points_for_area_sd = 3
+    min_points_for_moran = 8 # Reduced min points for Moran's I slightly for testing
+
+    if metrics['point_count'] < min_points_for_dist:
+        print(f"  Skipping spatial stats: need >= {min_points_for_dist} points.")
+        return metrics
+
+    if not spatial_reference or not spatial_reference.name:
+        print("  Skipping spatial stats: Invalid or unknown spatial reference.")
+        return metrics
+
+    temp_fc_name = arcpy.ValidateTableName(f"{temp_fc_base_name}_StatsPts", output_gdb)
+    temp_fc_path = os.path.join(output_gdb, temp_fc_name)
+    mean_center_fc_path = os.path.join(output_gdb, arcpy.ValidateTableName(f"{temp_fc_base_name}_MC", output_gdb))
+    std_dist_fc_path = os.path.join(output_gdb, arcpy.ValidateTableName(f"{temp_fc_base_name}_SD", output_gdb))
+    temp_files_to_delete = [temp_fc_path, mean_center_fc_path, std_dist_fc_path]
+
+    # Determine correct field type for BldgID
+    bldg_id_field = config["buildings"]["id_field"]
+    bldg_id_field_type_temp = "TEXT"
+    try:
+        field_obj = next((f for f in arcpy.ListFields(config["buildings"]["path"], bldg_id_field)), None)
+        if field_obj:
+            oid_field_type = field_obj.type
+            if oid_field_type in ['Integer', 'SmallInteger', 'OID']:
+                bldg_id_field_type_temp = "LONG"
+            elif oid_field_type in ['Double', 'Single']:
+                bldg_id_field_type_temp = "DOUBLE"
+    except:
+        pass
+
+    try:
+        arcpy.management.CreateFeatureclass(output_gdb, temp_fc_name, "POINT", spatial_reference=spatial_reference)
+        arcpy.management.AddField(temp_fc_path, bldg_id_field, bldg_id_field_type_temp)
+        arcpy.management.AddField(temp_fc_path, "BootCount", "LONG")
+
+        valid_points_added = 0
+        points_for_hull = []
+        with arcpy.da.InsertCursor(temp_fc_path, ["SHAPE@XY", bldg_id_field, "BootCount"]) as i_cursor:
+            for b_id in bldg_ids_with_counts:
+                info = buildings_data.get(b_id)
+                if not info:
+                    continue
+                shape = info.get("SHAPE")
+                if shape and shape.area > 0:
+                    try:
+                        centroid = shape.trueCentroid
+                        if centroid:
+                            i_cursor.insertRow(((centroid.X, centroid.Y), b_id, counts_dict[b_id]))
+                            points_for_hull.append(centroid)
+                            valid_points_added += 1
+                    except:
+                        pass
+
+        metrics['valid_point_count'] = valid_points_added
+        if valid_points_added < min_points_for_dist:
+            print(f"  Skipping further spatial stats: only {valid_points_added} valid points.")
+            return metrics
+
+        # Mean Center (positional)
+        print("  Calculating Mean Center...")
+        mc_result = arcpy.stats.MeanCenter(temp_fc_path, mean_center_fc_path)
+        with arcpy.da.SearchCursor(mean_center_fc_path, ["SHAPE@X", "SHAPE@Y"]) as mc_cur:
+            row = next(mc_cur, None)
+            if row:
+                metrics['mean_center_x'] = round(row[0], 5)
+                metrics['mean_center_y'] = round(row[1], 5)
+
+        # Standard Distance
+        if valid_points_added >= min_points_for_area_sd:
+            print("  Calculating Standard Distance...")
+            try:
+                sd_result = arcpy.stats.StandardDistance(temp_fc_path, std_dist_fc_path, None, "EUCLIDEAN_DISTANCE")
+                std_dist_val_str = sd_result.getOutput(1)
+                if std_dist_val_str:
+                    metrics['std_distance'] = round(float(std_dist_val_str), 5)
+            except Exception as e:
+                print(f"    Warning: Standard Distance failed: {e}")
+
+            # Convex Hull
+            print("  Calculating Convex Hull Area...")
+            try:
+                if len(points_for_hull) >= 3:
+                    multipoint = arcpy.Multipoint(arcpy.Array(points_for_hull), spatial_reference)
+                    hull_poly = multipoint.convexHull()
+                    if hull_poly and hull_poly.area > 0:
+                        metrics['convex_hull_area'] = round(hull_poly.area, 2)
+            except Exception as e:
+                print(f"    Warning: Convex Hull failed: {e}")
+
+        # Average Nearest Neighbor
+        study_area = metrics.get('convex_hull_area')
+        if isinstance(study_area, (int, float)) and study_area > 0:
+            print("  Calculating Average Nearest Neighbor...")
+            try:
+                ann_result = arcpy.stats.AverageNearestNeighbor(temp_fc_path, "EUCLIDEAN_DISTANCE", "NO_REPORT", None, study_area)
+                nni_val = ann_result.getOutput(0)
+                obs_nn_val = ann_result.getOutput(3)
+                exp_nn_val = ann_result.getOutput(4)
+                if nni_val: metrics['nni'] = round(float(nni_val), 5)
+                if obs_nn_val: metrics['observed_nn'] = round(float(obs_nn_val), 5)
+                if exp_nn_val: metrics['expected_nn'] = round(float(exp_nn_val), 5)
+            except Exception as e:
+                print(f"    Warning: ANN failed: {e}")
+        else:
+            print("  Skipping ANN: valid convex hull area required.")
+
+        # Moran's I
+        if valid_points_added >= min_points_for_moran:
+            distance_threshold = metrics.get('observed_nn', None)
+            # Fallback distance if ANN failed or returned 0
+            if not isinstance(distance_threshold, (float, int)) or distance_threshold <= 0:
+                 if valid_points_added > 1 and isinstance(study_area, (int, float)) and study_area > 0:
+                    distance_threshold = (study_area / valid_points_added)**0.5
+                    print(f"    Using fallback distance threshold for Moran's I: {distance_threshold:.2f}")
+                 else:
+                    distance_threshold = None
+
+            if isinstance(distance_threshold, (float, int)) and distance_threshold > 0:
+                print(f"  Calculating Moran's I with distance band = {distance_threshold:.2f}...")
+                try:
+                    moran_result = arcpy.stats.SpatialAutocorrelation(
+                        temp_fc_path, "BootCount", "FIXED_DISTANCE_BAND", "EUCLIDEAN_DISTANCE",
+                        "NO_STANDARDIZATION", "NO_REPORT", distance_threshold
+                    )
+                    moran_i_val = moran_result.getOutput(0)
+                    moran_z_val = moran_result.getOutput(3)
+                    moran_p_val = moran_result.getOutput(4)
+                    if moran_i_val: metrics['moran_i'] = round(float(moran_i_val), 5)
+                    if moran_z_val: metrics['moran_i_z'] = round(float(moran_z_val), 3)
+                    if moran_p_val: metrics['moran_i_p'] = round(float(moran_p_val), 3)
+                except Exception as e:
+                    print(f"    Warning: Moran's I failed: {e}")
+            else:
+                print("  Skipping Moran's I: Could not determine a valid distance band.")
+        else:
+            print(f"  Skipping Moran's I: need >= {min_points_for_moran} valid points, found {valid_points_added}.")
+
+    except Exception as e:
+        print(f"  ERROR calculating spatial distribution metrics: {e}")
+        traceback.print_exc()
+    finally:
+        # Cleanup
+        for f in temp_files_to_delete:
+            if arcpy.Exists(f):
+                try:
+                    arcpy.management.Delete(f)
+                except:
+                    pass
+    return metrics
+
+
+# --- Main Execution ---
+if __name__ == "__main__":
+    overall_start_time = time.time()
+    global all_results_aggregated # Keep track of counts across iterations
+    all_results_aggregated = {}
+
+    try:
+        validate_inputs(config)
+        arcpy.env.overwriteOutput = True
+        output_gdb = config["outputs"]["output_gdb"]
+
+        report_dir = os.path.dirname(output_gdb)
+        if not arcpy.Exists(report_dir):
+            report_dir = os.getcwd() # Fallback to current directory
+            print(f"Warning: Could not determine GDB directory. Saving report to: {report_dir}")
+
+        final_report_path = os.path.join(report_dir, config["outputs"]["final_report_name"])
+        print(f"Report will be saved to: {final_report_path}")
+
+        # Load Data
+        buildings_data, buildings_by_group, bldg_load_stats = load_prepare_buildings(config)
+        claims_data, claims_load_stats = load_prepare_claims(config)
+
+        # Get Building OID field name for later use
+        bldg_oid_field = arcpy.Describe(config["buildings"]["path"]).OIDFieldName
+
+        # Spatial Reference
+        spatial_ref = arcpy.Describe(config["buildings"]["path"]).spatialReference
+        if not spatial_ref or not spatial_ref.name:
+            print("Warning: Could not determine spatial reference from buildings layer.")
+            # Attempt to get from inundation layer if buildings failed
+            if arcpy.Exists(config["accuracy"]["inundation_layer_name"]):
+                 spatial_ref = arcpy.Describe(config["accuracy"]["inundation_layer_name"]).spatialReference
+            if not spatial_ref or not spatial_ref.name:
+                 raise ValueError("Unknown spatial reference for both buildings and inundation layers.")
+
+        sr_name = spatial_ref.name
+        sr_type = spatial_ref.type
+        print(f"Using CRS: {sr_name} (Type: {sr_type})")
+        if sr_type != "Projected":
+            print("Warning: Non-Projected CRS detected. Distance-based metrics might be invalid.")
+
+        # Prepare layer for accuracy (using OID field name)
+        print("\nPreparing analysis layer for accuracy assessment...")
+        bldg_path_for_acc = config["buildings"]["path"]
+        zone_field = config["buildings"].get("zone_field")
+        zone_value = config["buildings"].get("filter_zone_value")
+        where_clause_acc = None
+        analysis_layer_name = f"temp_analysis_buildings_{int(time.time())}" # Use a unique name
+
+        analysis_layer = None # Will hold the layer object or path string
+        analysis_layer_oid_field = bldg_oid_field # Assume same OID field unless layer is made
+
+        # --- Create analysis layer (potentially filtered) ---
+        if zone_value is not None and zone_field:
+            try:
+                field_names_lower = [f.name.lower() for f in arcpy.ListFields(bldg_path_for_acc)]
+                if zone_field.lower() not in field_names_lower:
+                    print(f"Warning: Zone field '{zone_field}' not found. Using entire layer for accuracy.")
+                    analysis_layer = bldg_path_for_acc
+                else:
+                    field_obj = arcpy.ListFields(bldg_path_for_acc, zone_field)[0]
+                    delim_fld = arcpy.AddFieldDelimiters(bldg_path_for_acc, zone_field)
+                    if field_obj.type in ['String', 'GUID', 'Date']:
+                        where_clause_acc = f"{delim_fld} = '{zone_value}'"
+                    else:
+                        where_clause_acc = f"{delim_fld} = {zone_value}"
+
+                    if arcpy.Exists(analysis_layer_name): arcpy.management.Delete(analysis_layer_name)
+                    # Use MakeFeatureLayer to create a layer object
+                    analysis_layer_obj = arcpy.management.MakeFeatureLayer(
+                        bldg_path_for_acc, analysis_layer_name, where_clause_acc
+                    )
+                    analysis_layer = analysis_layer_obj.getOutput(0) # Get the layer object
+                    analysis_layer_oid_field = arcpy.Describe(analysis_layer).OIDFieldName # Get OID of the layer
+                    print(f"Created temporary layer '{analysis_layer}' using filter: {where_clause_acc}")
+            except Exception as e:
+                print(f"Warning: Could not create filtered layer. Using original layer. Error: {e}")
+                analysis_layer = bldg_path_for_acc # Fallback to original path
+        else:
+            analysis_layer = bldg_path_for_acc # Use original path if no zone filter
+            print("Using original buildings layer for accuracy assessment (no zone filter).")
+
+        if not analysis_layer or not arcpy.Exists(analysis_layer):
+             raise ValueError("Failed to create or access the analysis layer for accuracy.")
+
+        # Check count AFTER potentially creating the layer object
+        total_buildings_in_analysis_layer = int(arcpy.management.GetCount(analysis_layer)[0])
+        print(f"Total buildings in analysis layer for accuracy checks: {total_buildings_in_analysis_layer}")
+        if total_buildings_in_analysis_layer == 0:
+             print("Warning: Analysis layer for accuracy is empty. Accuracy metrics will be N/A.")
+        # --- End Analysis Layer Prep ---
+
+        # Pre-calc buffer intersections
+        print("\nPre-calculating buffer intersections...")
+        created_buffers = []
+        inundated_oids_by_distance = {}
+        inundation_layer = config["accuracy"]["inundation_layer_name"]
+        buffer_distances = config["accuracy"]["buffer_distances"]
+        buffer_units = config["accuracy"]["buffer_units"]
+        acc_temp_base_name = f"temp_acc_{int(time.time())}"
+
+        if total_buildings_in_analysis_layer > 0:
+            try:
+                # Use the OID field name determined for the analysis_layer
+                oid_field_name_acc = analysis_layer_oid_field
+                print(f"  Using OID field '{oid_field_name_acc}' from analysis layer.")
+
+                for distance in buffer_distances:
+                    print(f"  Processing Buffer Distance: {distance} {buffer_units}...")
+                    buffer_poly_for_select = None
+                    buffer_output_path = None # Define here for finally block
+                    try:
+                        if distance == 0:
+                            # Use inundation layer directly if distance is 0
+                            buffer_poly_for_select = inundation_layer
+                        else:
+                            buffer_output_name = arcpy.ValidateTableName(
+                                f"{acc_temp_base_name}_{distance}".replace('.', '_'), output_gdb
+                            )
+                            buffer_output_path = os.path.join(output_gdb, buffer_output_name)
+                            if arcpy.Exists(buffer_output_path): arcpy.management.Delete(buffer_output_path)
+
+                            # Create buffer
+                            arcpy.analysis.Buffer(
+                                inundation_layer, buffer_output_path,
+                                f"{distance} {buffer_units}",
+                                dissolve_option="ALL" # Dissolve for performance
+                            )
+                            buffer_poly_for_select = buffer_output_path
+                            created_buffers.append(buffer_output_path) # Track for cleanup
+
+                        if not arcpy.Exists(buffer_poly_for_select):
+                            raise ValueError(f"Buffer/Inundation layer for selection not found: {buffer_poly_for_select}")
+
+                        # Select buildings intersecting the buffer/inundation polygon
+                        # Use the potentially temporary analysis_layer
+                        arcpy.management.SelectLayerByLocation(
+                            analysis_layer,
+                            "INTERSECT",
+                            buffer_poly_for_select,
+                            selection_type="NEW_SELECTION"
+                        )
+                        intersect_count = int(arcpy.management.GetCount(analysis_layer)[0])
+                        selected_oids = set()
+                        if intersect_count > 0:
+                            # Read OIDs from the selection on analysis_layer
+                            with arcpy.da.SearchCursor(analysis_layer, [oid_field_name_acc]) as sel_cur:
+                                selected_oids = {r[0] for r in sel_cur}
+
+                        inundated_oids_by_distance[distance] = selected_oids
+                        print(f"    Found {len(selected_oids)} intersecting buildings (OIDs stored).")
+
+                    except Exception as sel_err:
+                        print(f"  ERROR calculating buffer intersection for distance {distance}: {sel_err}")
+                        inundated_oids_by_distance[distance] = set() # Ensure key exists even on error
+                        # Don't remove buffer path if buffer creation failed before selection
+                    finally:
+                        # Always clear selection on the analysis_layer
+                        try:
+                            arcpy.management.SelectLayerByAttribute(analysis_layer, "CLEAR_SELECTION")
+                        except: pass # Ignore error if layer doesn't exist/support selection
+
+            except Exception as e:
+                print(f"ERROR during accuracy pre-calculation setup: {e}")
+                traceback.print_exc()
+                # Ensure dict has keys for all distances even if setup failed
+                inundated_oids_by_distance = {dist: set() for dist in buffer_distances}
+        else:
+             print("Skipping buffer intersection calculation as analysis layer is empty.")
+             inundated_oids_by_distance = {dist: set() for dist in buffer_distances}
+
+        print("Finished pre-calculating buffer intersections.\n")
+
+
+        # Open final report
+        final_report_path = os.path.join(report_dir, config["outputs"]["final_report_name"])
+        print(f"Opening final report file for writing: {final_report_path}")
+        with open(final_report_path, 'w') as report_file:
+            # --- Write header & config (Same as before) ---
+            report_file.write("="*80 + "\n")
+            report_file.write(f" Bootstrap Pipeline Report: {config['base_run_name']}\n")
+            report_file.write("="*80 + "\n")
+            report_file.write(f"Date Generated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            report_file.write(f"Workspace: {config['outputs']['output_gdb']}\n\n")
+            report_file.write("--- Configuration Used ---\n")
+            report_file.write(pprint.pformat(config, indent=2, width=100) + "\n\n")
+            report_file.write("--- Data Loading Summary ---\n")
+            report_file.write(
+                f"Buildings: Read={bldg_load_stats['initial_read']}, "
+                f"Invalid={bldg_load_stats['skipped_invalid_data']}, "
+                f"ZoneFilt={bldg_load_stats['skipped_zone_filter']}, "
+                f"FinalProcSkipped={bldg_load_stats['skipped_final_processing']}, "
+                f"Loaded={bldg_load_stats['final_processed_count']}\n"
+            )
+            report_file.write(
+                f"Claims: Processed={claims_load_stats['processed']}, "
+                f"Skipped={claims_load_stats['skipped']}\n\n"
+            )
+
+            # --- Main iteration loop ---
+            for n_iter in config["n_iterations_to_test"]:
+                iteration_start_time = time.time()
+                current_run_name = f"{config['base_run_name']}_{n_iter}Iter"
+                print(f"\n===== Starting Run: {n_iter} Iterations ({current_run_name}) =====")
+                report_file.write("*"*20 + f" Results for N_Iterations = {n_iter} " + "*"*20 + "\n\n")
+
+                run_stats_iter = {
+                    'claims_matched_attempted': 0,
+                    'claims_with_matches': 0,
+                    'claims_no_matches': 0,
+                    'matches_per_policy_list': []
+                }
+                overall_building_counts_iter = defaultdict(int)
+
+                # --- Bootstrap (Same as before) ---
+                print(f"  Running matching and bootstrapping ({n_iter} iterations)...")
+                claims_actually_matched = 0 # Count claims that had >=1 building match
+                for policy in claims_data:
+                    run_stats_iter['claims_matched_attempted'] += 1
+                    matches = find_matching_buildings(policy, buildings_data, buildings_by_group, config["parameters"])
+                    if matches:
+                        claims_actually_matched += 1
+                        run_stats_iter['matches_per_policy_list'].append(len(matches))
+                        policy_counts = run_policy_bootstrap(matches, n_iter)
+                        for b_id, c_val in policy_counts.items():
+                            overall_building_counts_iter[b_id] += c_val
+                    # No else needed, just don't add to counts if no matches
+
+                # Update stats based on actual matching outcome
+                run_stats_iter['claims_with_matches'] = claims_actually_matched
+                run_stats_iter['claims_no_matches'] = run_stats_iter['claims_matched_attempted'] - claims_actually_matched
+
+                print(f"  Finished matching/bootstrapping: {run_stats_iter['claims_with_matches']} claims had candidate buildings.")
+                all_results_aggregated[n_iter] = dict(overall_building_counts_iter) # Store aggregated counts
+
+
+                # --- Write Bootstrap Summary (Same as before) ---
+                report_file.write("  Bootstrap Run Summary:\n")
+                report_file.write(f"    Claims Processed (Attempted Matching): {run_stats_iter['claims_matched_attempted']}\n")
+                report_file.write(
+                    f"    Claims w/ >=1 Building Candidate: {run_stats_iter['claims_with_matches']} "
+                    f"| Claims w/ 0 Building Candidates: {run_stats_iter['claims_no_matches']}\n"
+                )
+                if run_stats_iter['matches_per_policy_list']:
+                    match_stats = calculate_stats(run_stats_iter['matches_per_policy_list'])
+                    report_file.write(
+                        f"    Candidates/Policy (Min/Max/Mean/Median): " # Renamed for clarity
+                        f"{match_stats['min']}/{match_stats['max']}/{match_stats['mean']}/{match_stats['median']}\n"
+                    )
+
+                counts_list = [c for c in overall_building_counts_iter.values() if c > 0]
+                num_buildings_counted = len(counts_list)
+                report_file.write(f"    Buildings w/ Count > 0: {num_buildings_counted}\n")
+                if counts_list:
+                    c_stats = calculate_stats(counts_list)
+                    report_file.write(
+                        f"    Counts (>0) (Min/Max/Mean/Median): "
+                        f"{c_stats['min']}/{c_stats['max']}/{c_stats['mean']}/{c_stats['median']}\n"
+                    )
+                    # Use the actual number of claims that had matches for expected sum
+                    expected_sum = n_iter * run_stats_iter['claims_with_matches']
+                    total_sum = sum(counts_list)
+                    mismatch_str = " *** MISMATCH ***" if not np.isclose(total_sum, expected_sum) else ""
+                    report_file.write(
+                        f"    Total Sum of Counts: {total_sum} "
+                        f"(Expected: {expected_sum}){mismatch_str}\n"
+                    )
+                report_file.write("-"*60 + "\n\n")
+
+
+                # --- Spatial Metrics (Same as before) ---
+                print(f"  Calculating Spatial Distribution Metrics for {n_iter} Iterations...")
+                report_file.write("  Spatial Distribution Metrics:\n")
+                bldgs_with_counts = [bid for bid, val in overall_building_counts_iter.items() if val > 0]
+                sp_metrics = calculate_spatial_distribution_metrics(
+                    bldgs_with_counts, buildings_data, overall_building_counts_iter,
+                    spatial_ref, output_gdb, f"iter_{n_iter}_{int(time.time())}"
+                )
+                for k, v in sp_metrics.items():
+                    report_file.write(f"    {k}: {v}\n")
+                report_file.write("-"*60 + "\n\n")
+
+
+                # --- Modified Accuracy Assessment Section ---
+                print(f"  Calculating Probabilistic Metrics for {n_iter} Iterations...")
+                report_file.write("  Probabilistic Performance Metrics (Buffer-Based Proxy):\n")
+
+                if total_buildings_in_analysis_layer == 0:
+                    report_file.write("    Skipping metrics calculation (analysis layer is empty).\n\n")
+                else:
+                    # Map Building ID to OID (using the OID field from the original FC)
+                    # Assume buildings_data keys are the BldgIDs and values contain the OID.
+                    bldg_id_to_oid = {
+                         b_id: info.get("OID")
+                         for b_id, info in buildings_data.items()
+                         if info and "OID" in info
+                    }
+                    if not bldg_id_to_oid:
+                         print("Warning: Could not map BldgID to OID. Cannot perform accuracy checks.")
+                         report_file.write("    Skipping metrics: Could not map BldgID to OID.\n\n")
+                    else:
+                         for dist in buffer_distances:
+                            report_file.write(f"    --- Buffer Distance: {dist} {buffer_units} ---\n")
+                            inundated_set = inundated_oids_by_distance.get(dist, set()) # Get pre-calculated OIDs
+                            if inundated_set is None: # Should not happen if pre-calc worked, but check
+                                report_file.write(f"      No pre-calculated intersection data available.\n")
+                                continue
+
+                            pred_scores = [] # List to hold predicted probabilities
+                            pred_labels = [] # List to hold true labels (0 or 1)
+
+                            # Iterate through all buildings included in the initial load
+                            # This serves as the basis for evaluation (all potential candidates)
+                            for b_id, bldg_info in buildings_data.items():
+                                oid = bldg_id_to_oid.get(b_id)
+                                if oid is None: continue # Skip if OID mapping failed
+
+                                # Predicted Probability: count / n_iterations
+                                count = overall_building_counts_iter.get(b_id, 0)
+                                predicted_prob = float(count) / float(n_iter) if n_iter > 0 else 0.0
+
+                                # True Label: 1 if building OID is in the inundated set for this buffer, 0 otherwise
+                                true_label = 1 if oid in inundated_set else 0
+
+                                pred_scores.append(predicted_prob)
+                                pred_labels.append(true_label)
+
+                            # Calculate Metrics
+                            if not pred_labels:
+                                report_file.write("      No buildings found for metric calculation.\n")
+                                continue
+
+                            roc_auc_val = calculate_roc_auc(pred_scores, pred_labels)
+                            pr_auc_val = calculate_pr_auc(pred_scores, pred_labels)
+                            brier_val = calculate_brier_score(pred_scores, pred_labels)
+                            logloss_val = calculate_log_loss_metric(pred_scores, pred_labels)
+
+                            report_file.write(f"      ROC AUC:              {roc_auc_val}\n")
+                            report_file.write(f"      PR AUC (Avg Prec):    {pr_auc_val}\n")
+                            report_file.write(f"      Brier Score Loss:     {brier_val} (lower is better)\n")
+                            report_file.write(f"      Log Loss:             {logloss_val} (lower is better)\n\n")
+
+                report_file.write("="*20 + f" End Results for N_Iterations = {n_iter} " + "="*20 + "\n\n")
+                iteration_end_time = time.time()
+                print(f"===== Finished Run ({n_iter} Iterations) in {iteration_end_time - iteration_start_time:.2f} seconds =====")
+
+            # --- Create final output table (Same as before) ---
+            if all_results_aggregated:
+                try:
+                    output_table_path = write_output_table(config, all_results_aggregated)
+                    report_file.write("\n--- Final Output Table ---\n")
+                    report_file.write(f"  Aggregated counts written to: {output_table_path}\n")
+                    print(f"\nAggregated results table created: {output_table_path}")
+                except Exception as table_err:
+                    print(f"\n--- ERROR writing final output table: {table_err} ---")
+                    report_file.write("\n--- Final Output Table FAILED ---\n")
+                    report_file.write(f"  Error: {table_err}\n")
+                    report_file.write(traceback.format_exc() + "\n\n")
+            else:
+                print("\nNo successful iteration results => skipping final output table.")
+                report_file.write("\n--- Final Output Table Skipped ---\n")
+
+    except Exception as main_err:
+        print(f"\n*** Fatal Error in Main Pipeline: {main_err} ***")
+        traceback.print_exc()
+        # Attempt to write error to report file if possible
+        try:
+             with open(final_report_path, 'a') as report_file: # Append mode
+                  report_file.write("\n" + "="*20 + " FATAL ERROR " + "="*20 + "\n")
+                  report_file.write(f"Error Type: {type(main_err).__name__}\n")
+                  report_file.write(f"Error Message: {main_err}\n")
+                  report_file.write("Traceback:\n")
+                  report_file.write(traceback.format_exc())
+        except:
+             pass # Ignore errors writing the error report
+
+    finally:
+        # --- Cleanup Temporary Layers/Buffers ---
+        print("\nCleaning up temporary files...")
+        # Delete temporary analysis layer if created
+        if 'analysis_layer_obj' in locals() and arcpy.Exists(analysis_layer):
+            try: arcpy.management.Delete(analysis_layer)
+            except: pass
+        # Delete created buffer files
+        for buf in created_buffers:
+            if arcpy.Exists(buf):
+                try: arcpy.management.Delete(buf)
+                except: pass
+        print("Cleanup complete.")
+
+
+    overall_end_time = time.time()
+    print(f"\nTotal Pipeline Execution Time: {overall_end_time - overall_start_time:.2f} seconds")
