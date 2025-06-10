@@ -61,16 +61,6 @@ CALC_AGE = "CalculatedBuildingAge"
 SFHA_CODES = {"A", "AE", "AO", "AH", "AR", "A99", "V", "VE"}
 NEIGHBORS_K = 16
 
-# --- land-use mapping (Agriculture, Exempt & Other → Industrial/Mixed) -
-LU_MAP: Dict[int, str] = {
-    1: "Residential",
-    2: "Industrial/Mixed Use",
-    3: "Commercial",
-    4: "Industrial/Mixed Use",
-    6: "Industrial/Mixed Use",
-    9: "Industrial/Mixed Use",
-}
-DIM_MAP = {1: "Acreage", 2: "RuralLarge", 3: "RuralSmall", 4: "UrbanRegular", 5: "UrbanSmall"}
 
 # ─── helpers ------------------------------------------------------------
 log = lambda m: (arcpy.AddMessage(m), print(m))
