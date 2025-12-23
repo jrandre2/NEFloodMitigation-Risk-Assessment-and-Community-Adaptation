@@ -22,6 +22,36 @@ Floods make risk salient, but housing markets can adjust through thin liquidity 
 - The share of boundary-window sales occurring inside the SFHA falls by **~1.1 percentage points** after flood
 - Raw SFHA price discount of **-40%** shrinks to **-15%** after controlling for housing characteristics (covariate-adjusted RD)
 
+## Current Analysis Status
+
+**Status: PHASE 5 COMPLETE - "Freeze and Rebuild" Narrative**
+
+Investigation of the counterintuitive positive price effect has been completed. The analysis now supports a "Freeze and Rebuild" narrative rather than "Freeze and Flight":
+
+### Primary Findings
+
+| Finding | Result | Interpretation |
+|---------|--------|----------------|
+| Inundation pre-trends | **PASSES** (p=0.779) | Supports parallel trends assumption |
+| SFHA pre-trends | FAILS (p=0.026) | Use inundation as primary boundary |
+| Price effect | **+52.8%** (inundation, no trends) | Positive, not negative |
+| Composition effect | ~60% explained by observables | Newer/larger properties sell post-flood |
+| Buyer composition | LLC share **decreased** post-flood | Not investor acquisition |
+
+### Key Insight
+
+The positive price effect reflects **composition changes** (newer construction, rebuilding) rather than investor acquisition. Properties that sold post-flood inside the inundation zone were systematically newer and larger than pre-flood sales.
+
+### Phase 5 Data Extensions
+
+| Extension | Status | Key Finding |
+|-----------|--------|-------------|
+| NFIP Claims Integration | Complete | 818 claims in 2019 (15.7× average), validates flood boundary |
+| Extended Panel | Complete | t-24 to t+45 months, 8,313 sales, COVID controls added |
+| Buyer Distance Geocoding | Infrastructure complete | Census Geocoder integration ready |
+
+**See**: [doc/ANALYSIS_SUMMARY.md](doc/ANALYSIS_SUMMARY.md) for complete findings, [doc/PIPELINE.md](doc/PIPELINE.md) for Phase 5 documentation.
+
 ---
 
 ## Prerequisites
@@ -102,6 +132,7 @@ python src/pipeline.py selection_correction -b inund -c 300
 python src/pipeline.py quantile_effects -b inund -c 300
 python src/pipeline.py extended_horizon -b inund -c 300
 python src/pipeline.py mechanism_analysis -b inund -c 300
+python src/pipeline.py trend_analysis -c 300 --start-year 2010
 ```
 
 ### Chunked Boundary Processing
@@ -177,8 +208,49 @@ Freeze and Flight/
 ├── figures/                     # Publication-quality figures
 ├── GIS_Data/                    # GIS source data
 ├── related_manuscripts/         # Related Douglas County papers
-└── notebooks/                   # Jupyter notebooks
+├── notebooks/                   # Jupyter notebooks
+└── manuscript_quarto/           # Quarto manuscript (HTML/PDF/DOCX)
 ```
+
+---
+
+## Quarto Manuscript System
+
+The project includes a modern Quarto-based manuscript system in `manuscript_quarto/` that generates publication-ready outputs in multiple formats.
+
+### Quick Start
+
+```bash
+cd manuscript_quarto
+~/local/quarto/bin/quarto render          # All formats
+~/local/quarto/bin/quarto render --to pdf # PDF only
+~/local/quarto/bin/quarto preview         # Live preview
+```
+
+### Output Formats
+
+| Format | File | Features |
+|--------|------|----------|
+| HTML | `_output/freeze-rebuild.html` | Interactive TOC, code folding, format links |
+| PDF | `_output/freeze-rebuild.pdf` | Journal-ready, letter paper, 1-inch margins |
+| DOCX | `_output/freeze-rebuild.docx` | Track changes compatible |
+
+### Manuscript Structure
+
+- **Main manuscript**: `freeze-rebuild.qmd` - Complete "Freeze and Rebuild" paper
+- **Appendix A**: Data and Study Area
+- **Appendix B**: Identification Diagnostics
+- **Appendix C**: Robustness Specifications
+- **Appendix D**: Price Decomposition
+- **Appendix E**: Mechanism Analysis
+
+### Prerequisites
+
+- Quarto >= 1.4 (install: `brew install quarto` or from [quarto.org](https://quarto.org))
+- Python >= 3.9 with pandas, numpy, tabulate
+- TinyTeX for PDF output (`quarto install tinytex`)
+
+See [manuscript_quarto/README.md](manuscript_quarto/README.md) for detailed build instructions.
 
 ---
 

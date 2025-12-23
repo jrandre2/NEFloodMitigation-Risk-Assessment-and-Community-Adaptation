@@ -1,0 +1,179 @@
+---
+title: "Appendix D: Price Decomposition"
+---
+
+This appendix provides detailed results from our price decomposition analysis, which aims to distinguish between changes in the composition of transacting properties and changes in the market's valuation of flood risk.
+
+## D.1 Oaxaca-Blinder Framework
+
+We adapt the Oaxaca-Blinder decomposition [@oaxaca1973; @blinder1973] to our spatial discontinuity setting. The observed price difference between inside and outside the flood boundary can be decomposed into:
+
+$$\bar{P}_{inside} - \bar{P}_{outside} = \underbrace{(\bar{X}_{inside} - \bar{X}_{outside})\hat{\beta}}_{\text{Explained (Composition)}} + \underbrace{\bar{X}_{outside}(\hat{\beta}_{inside} - \hat{\beta}_{outside})}_{\text{Unexplained (Coefficients)}}$$
+
+where $\bar{X}$ represents mean characteristics and $\hat{\beta}$ represents hedonic price coefficients. The "explained" component captures price differences attributable to different property characteristics selling on different sides of the boundary. The "unexplained" component captures differences in how the market values those characteristics---potentially reflecting risk capitalization.
+
+## D.2 Detailed Decomposition Results
+
+@tbl-oaxaca-detailed presents the full Oaxaca-Blinder decomposition by variable.
+
+```{python}
+#| label: tbl-oaxaca-detailed
+#| tbl-cap: "Oaxaca-Blinder Decomposition by Variable"
+#| echo: false
+
+import pandas as pd
+import sys
+sys.path.insert(0, 'code')
+from _common import load_diagnostic
+
+df = load_diagnostic("oaxaca_blinder_detailed")
+
+# Calculate percentage contributions
+df['explained_pct'] = df['explained_contrib'] / df['explained_contrib'].sum() * 100
+df['total_pct'] = df['total_contrib'] / df['total_contrib'].sum() * 100
+
+display_df = df[['variable', 'x_diff', 'explained_contrib', 'unexplained_contrib', 'total_contrib']].copy()
+display_df.columns = ['Variable', 'Char. Diff', 'Explained', 'Unexplained', 'Total']
+display_df['Char. Diff'] = display_df['Char. Diff'].round(3)
+display_df['Explained'] = display_df['Explained'].round(3)
+display_df['Unexplained'] = display_df['Unexplained'].round(3)
+display_df['Total'] = display_df['Total'].round(3)
+
+print(display_df.to_markdown(index=False))
+```
+
+Key findings from the variable-level decomposition:
+
+**Building Age**: Properties that transacted inside the boundary post-flood were approximately 10 years older on average. Given the negative relationship between age and price, this composition shift contributes negatively to the explained component. However, the unexplained component is large and positive, suggesting that older properties commanded higher prices inside the boundary---potentially reflecting selection of better-maintained older structures.
+
+**Assessed Value**: The log assessed value difference contributes substantially to both explained and unexplained components. Properties selling inside had lower assessed values, but the coefficient on assessed value is substantially larger inside the boundary, generating a large unexplained component.
+
+**Lot Size**: Inside properties had larger lots (0.35 log acres larger), contributing positively to the explained component. The unexplained component is small, suggesting similar lot size valuations on both sides of the boundary.
+
+**Building Square Footage**: Despite slightly larger buildings selling inside, the total contribution is negative due to a large negative unexplained component. This may reflect the market discounting building size inside the flood zone.
+
+## D.3 Composition Shifts by Variable
+
+@tbl-composition-shift presents difference-in-differences estimates for composition changes in transacting properties.
+
+```{python}
+#| label: tbl-composition-shift
+#| tbl-cap: "Composition Shift DiD Analysis"
+#| echo: false
+
+import pandas as pd
+import sys
+sys.path.insert(0, 'code')
+from _common import load_diagnostic, add_significance_stars
+
+df = load_diagnostic("composition_shift_analysis")
+df['sig'] = df['pval'].apply(add_significance_stars)
+df['did_fmt'] = df['did'].round(3).astype(str) + df['sig']
+
+display_df = df[['label', 'inside_pre', 'inside_post', 'outside_pre', 'outside_post', 'did_fmt', 'pval']].copy()
+display_df.columns = ['Variable', 'Inside Pre', 'Inside Post', 'Outside Pre', 'Outside Post', 'DiD', 'P-value']
+display_df['Inside Pre'] = display_df['Inside Pre'].round(2)
+display_df['Inside Post'] = display_df['Inside Post'].round(2)
+display_df['Outside Pre'] = display_df['Outside Pre'].round(2)
+display_df['Outside Post'] = display_df['Outside Post'].round(2)
+display_df['P-value'] = display_df['P-value'].round(3)
+
+print(display_df.to_markdown(index=False))
+```
+
+The composition analysis reveals several significant shifts:
+
+**New Construction**: The share of sales involving new construction (buildings 5 years old or less) shifted differentially. Outside the boundary, new construction share fell from 42% to 23%. Inside the boundary, the share remained stable (19% to 20%). The DiD effect of +0.20 (p < 0.001) indicates that post-flood transactions inside the boundary included a relatively higher share of new construction compared to the counterfactual.
+
+**Log Sale Price**: The DiD on log price (+0.29, p = 0.044) confirms our main finding of higher prices inside the boundary post-flood.
+
+**Mean Age at Sale**: While not statistically significant (p = 0.133), the point estimate suggests that properties selling inside became relatively younger (compared to outside) after the flood, consistent with the new construction pattern.
+
+## D.4 Price Effects by Subgroup
+
+To understand whether price effects vary across property types, we estimate separate effects by property characteristics.
+
+```{python}
+#| label: tbl-subgroup
+#| tbl-cap: "Price Effects by Property Subgroup"
+#| echo: false
+
+import pandas as pd
+import sys
+sys.path.insert(0, 'code')
+from _common import load_diagnostic
+
+try:
+    df = load_diagnostic("price_effect_by_subgroup")
+    display_df = df[['subgroup', 'estimate', 'se', 'pvalue', 'n_obs']].copy()
+    display_df.columns = ['Subgroup', 'Estimate', 'SE', 'P-value', 'N']
+    display_df['Estimate'] = display_df['Estimate'].round(3)
+    display_df['SE'] = display_df['SE'].round(3)
+    display_df['P-value'] = display_df['P-value'].round(3)
+    print(display_df.to_markdown(index=False))
+except Exception as e:
+    print(f"Table generation error: {e}")
+```
+
+## D.5 Quantile Effects
+
+Standard mean regressions may mask heterogeneous effects across the price distribution. We estimate quantile DiD regressions at the 10th, 25th, 50th, 75th, and 90th percentiles.
+
+```{python}
+#| label: tbl-quantile
+#| tbl-cap: "Quantile DiD Estimates"
+#| echo: false
+
+import pandas as pd
+import sys
+sys.path.insert(0, 'code')
+from _common import load_diagnostic
+
+df = load_diagnostic("quantile_did")
+display_df = df[['quantile', 'coef', 'se', 'ci_lo', 'ci_hi', 'pval']].copy()
+display_df.columns = ['Quantile', 'Coefficient', 'SE', '95% CI Lower', '95% CI Upper', 'P-value']
+display_df['Quantile'] = display_df['Quantile'].apply(lambda x: f"{int(x*100)}th")
+display_df['Coefficient'] = display_df['Coefficient'].round(3)
+display_df['SE'] = display_df['SE'].round(3)
+display_df['95% CI Lower'] = display_df['95% CI Lower'].round(3)
+display_df['95% CI Upper'] = display_df['95% CI Upper'].round(3)
+display_df['P-value'] = display_df['P-value'].round(3)
+
+print(display_df.to_markdown(index=False))
+```
+
+![Quantile Effects Distribution](figures/fig_quantile_effects.png){#fig-quantile-effects}
+
+The quantile analysis reveals interesting heterogeneity:
+
+1. **Lower quantiles (10th, 25th)**: Point estimates are positive but imprecise, with wide confidence intervals spanning zero. This suggests no clear price effect at the lower end of the distribution.
+
+2. **Median (50th)**: The median effect is near zero (-0.10) and not statistically significant.
+
+3. **Upper quantiles (75th, 90th)**: Point estimates become increasingly negative (-0.52 at 75th, -0.72 at 90th), though standard errors remain large.
+
+The pattern of increasingly negative effects at higher quantiles is consistent with a composition story: if the flood induced higher-value properties to exit the transacted sample inside the boundary, we would observe relative price declines concentrated in the upper tail. However, the imprecision of these estimates limits strong conclusions.
+
+## D.6 Price Decomposition Visualization
+
+@fig-price-decomposition presents a waterfall chart illustrating the decomposition of the price differential into explained and unexplained components.
+
+![Price Decomposition Waterfall](figures/fig_price_decomposition.png){#fig-price-decomposition}
+
+The visualization demonstrates that:
+
+1. The total price differential between inside and outside properties is substantial.
+2. Observable composition differences (building age, size, lot characteristics, assessed value) explain a significant portion of this differential.
+3. The unexplained residual---potentially reflecting flood risk capitalization---is smaller than the raw price differential would suggest.
+
+## D.7 Interpretation
+
+The decomposition analysis supports the "Freeze and Rebuild" narrative in several ways:
+
+**Composition Changed**: Post-flood transactions inside the boundary involved systematically different properties than pre-flood transactions. The relative increase in new construction share is particularly striking and suggests that flood-damaged properties may have been rebuilt prior to sale.
+
+**Price Effects Are Partially Explained**: Approximately 60% of the observed price differential can be attributed to observable composition changes. The remaining 40% may reflect: (a) unobserved composition changes, (b) genuine flood risk capitalization, or (c) other location-specific factors.
+
+**Heterogeneous Effects**: The quantile analysis suggests that price effects vary across the distribution, with larger negative effects at higher quantiles. This is consistent with selection: high-value properties inside the boundary may have been withheld from the market (contributing to the liquidity freeze), while properties that did sell may have been negatively selected on unobservables.
+
+These findings underscore the importance of analyzing what sells, not just whether it sells or at what price. A naive comparison of pre- and post-flood prices inside the boundary would attribute the entire differential to flood risk capitalization, when in fact a substantial portion reflects composition changes in the transacted sample.

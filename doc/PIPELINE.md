@@ -680,6 +680,33 @@ python src/pipeline.py mechanism_analysis -b inund -c 300
 
 ---
 
+##### trend_analysis.py
+
+**Purpose**: Test for and control differential geographic trends that may confound DiD estimates.
+
+**Input**:
+- `data_work/sales_clean.parquet`
+- `data_work/parcel_boundary_distances.parquet`
+
+**Output**:
+- `data_work/diagnostics/trend_analysis.csv`
+- `data_work/diagnostics/trend_adjusted_did.csv`
+- `figures/fig_trend_analysis.png`
+
+**Key Tests**:
+
+| Test | Description |
+|------|-------------|
+| Differential Pre-Trends | Test if inside/outside had different growth rates pre-event |
+| Trend-Break Model | Test for structural break at event date |
+| Trend-Adjusted DiD | Compare estimates with/without group-specific trends |
+
+**Key Finding**: Trend controls change DiD estimates by 165%, suggesting potential omitted variable bias. See `doc/RESULTS_INTERPRETATION.md`.
+
+**Usage**: `python src/pipeline.py trend_analysis -c 300 --start-year 2010 --end-year 2022`
+
+---
+
 ##### run_all_diagnostics.py
 
 **Purpose**: Single entry point to run complete diagnostics suite.
@@ -689,7 +716,7 @@ python src/pipeline.py mechanism_analysis -b inund -c 300
 - `data_work/diagnostics/diagnostics_summary.json`
 - All outputs from individual modules above
 
-**Modules Orchestrated** (8 total):
+**Modules Orchestrated** (9 total):
 1. RD Diagnostics (McCrary, pre-trends, bandwidth)
 2. Event Study
 3. Placebo Tests
@@ -698,8 +725,194 @@ python src/pipeline.py mechanism_analysis -b inund -c 300
 6. Quantile Effects
 7. Extended Horizon
 8. Mechanism Analysis
+9. Trend Analysis
 
 **Usage**: `python src/pipeline.py run_all_diagnostics -b inund -c 300 [--skip-permutation]`
+
+---
+
+#### Stage 07d: Investigation Modules
+
+These modules investigate the counterintuitive positive price effect finding, where prices rose faster inside the flood zone post-event.
+
+**Run Investigation Suite**:
+```bash
+python src/pipeline.py run_investigation --caliper 300
+```
+
+**Modules**:
+
+| Module | Purpose | Key Output |
+|--------|---------|------------|
+| `decompose_price_effect.py` | Decompose price effect by property type/age | `diagnostics/price_decomposition.csv` |
+| `rate_price_reconciliation.py` | Reconcile sale rate vs price findings | `diagnostics/rate_price_reconciliation.csv` |
+| `seller_selection_analysis.py` | Analyze who sells post-flood | `diagnostics/seller_selection.csv` |
+| `buyer_analysis_extended.py` | Extended buyer composition analysis | `diagnostics/buyer_analysis_extended.csv` |
+| `alternative_trends.py` | Test trend specifications | `diagnostics/alternative_trends.csv` |
+| `oaxaca_blinder_decomposition.py` | Formal composition decomposition | `diagnostics/oaxaca_blinder_results.csv` |
+| `investigation_report.py` | Generate summary report | `diagnostics/investigation_report.md` |
+
+---
+
+##### decompose_price_effect.py
+
+**Purpose**: Decompose the positive price effect by property characteristics to determine if composition changes (newer construction) explain the finding.
+
+**Input**: `data_work/panel_parcel_month.parquet`, `data_work/parcel_covariates_full.parquet`
+
+**Output**:
+- `data_work/diagnostics/price_decomposition.csv` - Decomposition by property type
+- `data_work/diagnostics/price_did_existing_structures.csv` - Effect excluding new construction
+
+**Key Tests**:
+- Price DiD for existing structures only (building_age > 10)
+- Price DiD by year_built cohort
+- Price DiD by assessed value tercile
+
+---
+
+##### rate_price_reconciliation.py
+
+**Purpose**: Reconcile the finding that sale rates fell but prices rose inside the flood zone.
+
+**Input**: `data_work/panel_parcel_month.parquet`
+
+**Output**: `data_work/diagnostics/rate_price_reconciliation.csv`
+
+**Hypothesis**: Selection effect - only high-value properties sell post-flood.
+
+---
+
+##### seller_selection_analysis.py
+
+**Purpose**: Analyze characteristics of sellers post-flood inside vs. outside.
+
+**Input**: `data_work/sales_buyer_features.parquet`, `data_work/parcel_covariates_full.parquet`
+
+**Output**: `data_work/diagnostics/seller_selection.csv`
+
+**Key Tests**:
+- Are post-flood sellers inside systematically different?
+- Did distressed sellers exit early?
+
+---
+
+##### oaxaca_blinder_decomposition.py
+
+**Purpose**: Formal Oaxaca-Blinder decomposition of price difference into composition vs. coefficient effects.
+
+**Input**: `data_work/sales_buyer_features.parquet`, `data_work/parcel_covariates_full.parquet`
+
+**Output**: `data_work/diagnostics/oaxaca_blinder_results.csv`
+
+**Decomposition**:
+```
+Δ_price = Δ_composition + Δ_coefficients + Δ_interaction
+```
+
+**Target**: Explain >50% of positive effect via composition (newer, larger properties selling post-flood).
+
+---
+
+##### alternative_trends.py
+
+**Purpose**: Test sensitivity of DiD estimates to different trend specifications.
+
+**Input**: `data_work/panel_parcel_month.parquet`
+
+**Output**:
+- `data_work/diagnostics/alternative_trends.csv` - Full specification grid
+- `data_work/diagnostics/specification_decision_matrix.csv` - Summary matrix
+
+**Specifications Tested**:
+| Model | Description |
+|-------|-------------|
+| No trends | Basic DiD |
+| Linear common | Common time trend |
+| Linear group-specific | Separate inside/outside trends |
+| Quadratic group-specific | Quadratic trends by group |
+| Spline at event | Trend break at flood date |
+
+---
+
+##### investigation_report.py
+
+**Purpose**: Generate comprehensive markdown report summarizing all investigation findings.
+
+**Input**: All diagnostic CSV files from investigation modules
+
+**Output**: `data_work/diagnostics/investigation_report.md`
+
+**Sections**:
+1. Executive Summary
+2. Pre-Trends Analysis
+3. Price Decomposition Results
+4. Selection Analysis
+5. Trend Sensitivity
+6. Recommendations
+
+---
+
+#### Stage 07e: Supplementary Robustness Methods
+
+Additional robustness analyses requested during peer review.
+
+**Modules**:
+
+| Module | Purpose | Key Output |
+|--------|---------|------------|
+| `power_analysis.py` | Sample size and MDE documentation | `diagnostics/power_analysis.csv` |
+| `repeat_sales_did.py` | Within-property DiD estimation | `diagnostics/repeat_sales_did.csv` |
+| `synthetic_control.py` | Alternative counterfactual | `diagnostics/synthetic_control.csv` |
+
+---
+
+##### power_analysis.py
+
+**Purpose**: Document sample size limitations and minimum detectable effects (MDE).
+
+**Input**: `data_work/panel_parcel_month.parquet`
+
+**Output**: `data_work/diagnostics/power_analysis.csv`
+
+**Reports**:
+- Effective sample sizes by group (inside/outside, pre/post)
+- MDE at 80% power for each outcome
+- Which effects are adequately powered
+
+---
+
+##### repeat_sales_did.py
+
+**Purpose**: Estimate price effect using within-property variation only (repeat sales).
+
+**Input**: `data_work/sales_buyer_features.parquet`
+
+**Output**: `data_work/diagnostics/repeat_sales_did.csv`
+
+**Model**:
+```
+log_price_2 - log_price_1 = β × inside + controls
+```
+
+**Advantages**: Controls for time-invariant property characteristics.
+
+---
+
+##### synthetic_control.py
+
+**Purpose**: Construct synthetic control counterfactual when parallel trends are questioned.
+
+**Input**: `data_work/panel_parcel_month.parquet`
+
+**Output**:
+- `data_work/diagnostics/synthetic_control.csv` - Estimates
+- `figures/fig_synthetic_control.png` - Visualization
+
+**Method**:
+- Aggregate to inside/outside-by-month level
+- Match pre-treatment trajectory
+- Compare SC estimate to DiD estimate
 
 ---
 
@@ -826,3 +1039,235 @@ The analysis uses a fixed event window centered on the March 2019 Missouri River
 - **Event window**: March 2017 to March 2021 (±24 months)
 - **Pre-period**: event_m ∈ [-24, -1]
 - **Post-period**: event_m ∈ [0, +24]
+
+---
+
+## Phase 5: Data Extensions
+
+Phase 5 adds three data extensions to strengthen the analysis:
+
+### 5.1 NFIP Data Integration (`00_ingest/load_nfip.py`, `07_estimation/nfip_analysis.py`)
+
+**Purpose**: Integrate National Flood Insurance Program claims and policies data to validate flood exposure measures.
+
+**Commands**:
+```bash
+# Load NFIP claims data (filters to Nebraska study counties)
+python src/pipeline.py load_nfip
+
+# Run NFIP analysis (tract-level aggregation and validation)
+python src/pipeline.py nfip_analyze
+```
+
+**Input**:
+- `NfipClaims_US.csv` from external NFIP data directory (path configured in script)
+
+**Output**:
+- `data_work/nfip_claims_nebraska.parquet` - Filtered Nebraska claims
+- `data_work/tract_nfip_summary.parquet` - Tract-level aggregated claims
+- `data_work/diagnostics/nfip_claims_by_year.csv`
+- `figures/fig_nfip_claims_by_year.png`
+
+**Key Findings**:
+- 818 claims in 2019 flood year (15.7× historical average)
+- $37.5M total payments in 2019
+- 155 unique census tracts with claims
+
+**Note**: NFIP lat/lon coordinates are obfuscated for privacy, so analysis uses census tract aggregation rather than point-level matching.
+
+---
+
+### 5.2 Buyer Distance Geocoding (`05_features/geocode_buyer_addresses.py`)
+
+**Purpose**: Geocode owner mailing addresses to compute continuous buyer-parcel distances, enabling more precise analysis of investor vs. local buyer patterns.
+
+**Command**:
+```bash
+# Run geocoding (uses Census Geocoder API, may take extended time)
+python src/pipeline.py geocode_addresses
+
+# With test limit (for development)
+python src/pipeline.py geocode_addresses --limit 100
+```
+
+**Input**:
+- `data_work/assessor_raw.parquet` - Contains owner mailing addresses
+
+**Output**:
+- `data_work/owner_addresses_geocoded.parquet` - Geocoded coordinates
+- `data_work/owner_distances.parquet` - Computed distances with bands
+
+**Key Variables**:
+- `distance_miles` - Great-circle distance from owner to parcel
+- `distance_band` - Categorical: <10mi, 10-50mi, 50-100mi, 100-500mi, >500mi
+- `out_of_state` - Binary indicator for out-of-Nebraska owners
+
+**Technical Notes**:
+- Uses Census Geocoder batch API (free, rate-limited)
+- Batch size: 1,000 addresses per request
+- Typical match rate: ~81%
+- Haversine distance calculation for owner-parcel distance
+
+---
+
+### 5.3 Extended Panel (`06_panels/extend_panel.py`)
+
+**Purpose**: Extend the analysis panel beyond the original ±24 month window (through December 2022) to detect longer-term effects and test effect persistence.
+
+**Command**:
+```bash
+# Build extended panel (default: 2017-03 to 2022-12)
+python src/pipeline.py panel_extend
+
+# Custom date range
+python src/pipeline.py panel_extend --start 2017-03 --end 2023-06
+
+# Include all parcels (not just RD sample)
+python src/pipeline.py panel_extend --scope all
+```
+
+**Input**:
+- `data_work/parcels_sfr.gpkg`
+- `data_work/parcel_treatments_rd.parquet`
+- `data_work/sales_buyer_features.parquet`
+
+**Output**:
+- `data_work/panel_parcel_month_extended.parquet` - Extended panel
+- `data_work/panel_extended_summary.csv` - Summary statistics
+
+**Key Features**:
+- Event time range: t-24 to t+45 (through December 2022)
+- COVID-19 indicators:
+  - `covid_lockdown` - Initial lockdown period (March-June 2020)
+  - `covid_period` - Broader pandemic period (March 2020 - December 2021)
+- 70 months total (vs. 49 in original panel)
+
+**Panel Statistics**:
+| Metric | Value |
+|--------|-------|
+| Parcels | 38,085 |
+| Months | 70 |
+| Panel observations | 2,665,950 |
+| Total sales | 8,313 |
+| Pre-flood sales | 2,368 |
+| Post-flood sales | 5,945 |
+| COVID period sales | 3,185 |
+
+---
+
+### Phase 5 CLI Reference
+
+| Command | Description | Key Options |
+|---------|-------------|-------------|
+| `load_nfip` | Load NFIP claims/policies | `--claims-only`, `--all-counties` |
+| `nfip_analyze` | Run NFIP tract-level analysis | None |
+| `geocode_addresses` | Geocode owner addresses | `--limit`, `--batch-size` |
+| `panel_extend` | Build extended panel | `--start`, `--end`, `--scope` |
+
+---
+
+## Stage 09: Manuscript Generation
+
+### Overview
+
+Generates publication-ready manuscript from diagnostic outputs using Quarto. The manuscript system produces HTML, PDF, and DOCX formats from a single source, with tables computed dynamically from pipeline outputs.
+
+### Location
+
+`manuscript_quarto/`
+
+### Prerequisites
+
+- Quarto >= 1.4 (install via `brew install quarto` or from [quarto.org](https://quarto.org))
+- Python >= 3.9 with pandas, numpy, tabulate
+- TinyTeX for PDF output (`quarto install tinytex`)
+
+### Directory Structure
+
+```
+manuscript_quarto/
+├── _quarto.yml                    # Project configuration
+├── freeze-rebuild.qmd             # Main manuscript
+├── appendix-a-data.qmd            # Appendix A: Data and Study Area
+├── appendix-b-identification.qmd  # Appendix B: Identification Diagnostics
+├── appendix-c-robustness.qmd      # Appendix C: Robustness Specifications
+├── appendix-d-decomposition.qmd   # Appendix D: Price Decomposition
+├── appendix-e-mechanisms.qmd      # Appendix E: Mechanism Analysis
+├── references.bib                 # Bibliography (23 citations)
+├── apa.csl                        # APA 7th citation style
+├── code/_common.py                # Python utilities
+├── figures/ → ../figures/         # Symlink to project figures
+├── data/ → ../data_work/diagnostics/  # Symlink to diagnostic CSVs
+└── _output/                       # Rendered outputs (gitignored)
+```
+
+### Build Commands
+
+```bash
+cd manuscript_quarto
+
+# Render all formats (HTML, PDF, DOCX)
+quarto render
+
+# Render specific format
+quarto render --to html
+quarto render --to pdf
+quarto render --to docx
+
+# Live preview with hot reload
+quarto preview
+```
+
+### Output Files
+
+| Format | File | Description |
+|--------|------|-------------|
+| HTML | `_output/freeze-rebuild.html` | Interactive with TOC, code folding |
+| PDF | `_output/freeze-rebuild.pdf` | Journal-ready, letter paper |
+| DOCX | `_output/freeze-rebuild.docx` | Track changes compatible |
+
+### Data Integration
+
+The manuscript uses Python code chunks to load diagnostic CSVs at render time:
+
+```python
+import pandas as pd
+import sys
+sys.path.insert(0, 'code')
+from _common import load_diagnostic
+
+df = load_diagnostic("composition_shift_analysis")
+print(df.to_markdown(index=False))
+```
+
+This ensures tables are always synchronized with pipeline outputs.
+
+### Key Diagnostic Files Used
+
+| Diagnostic CSV | Used In |
+|----------------|---------|
+| `mccrary_density_test.csv` | Appendix B |
+| `pretrends_ftest.csv` | Appendix B |
+| `covariate_balance_sfr.csv` | Appendix B |
+| `composition_shift_analysis.csv` | Main text, Appendix D |
+| `buyer_form_did.csv` | Main text, Appendix E |
+| `oaxaca_blinder_detailed.csv` | Appendix D |
+| `quantile_did.csv` | Appendix D |
+| `mechanism_insurance.csv` | Appendix E |
+| `persistence_analysis.csv` | Appendix E |
+
+### Troubleshooting
+
+**PDF build fails**:
+```bash
+quarto install tinytex  # Install TinyTeX
+```
+
+**Code chunk errors**:
+1. Activate project virtual environment: `source .venv/bin/activate`
+2. Ensure symlinks resolve: `ls -la manuscript_quarto/data/`
+3. Check required packages: `pip install pandas numpy tabulate`
+
+**Cross-reference not found**:
+1. Verify label exists: `{#fig-name}` or `#| label: tbl-name`
+2. Rebuild cross-reference index: `quarto render`

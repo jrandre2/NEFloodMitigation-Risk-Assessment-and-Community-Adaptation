@@ -1,0 +1,174 @@
+---
+title: "Appendix B: Identification Diagnostics"
+---
+
+This appendix presents diagnostics for the key identifying assumptions underlying our boundary discontinuity design. Valid identification requires: (1) no manipulation of treatment assignment at the boundary, (2) balance in pre-treatment covariates, (3) parallel pre-trends in outcome variables, and (4) appropriate bandwidth selection.
+
+## B.1 McCrary Density Tests
+
+The McCrary (2008) density test examines whether the distribution of observations exhibits a discontinuity at the treatment boundary. A discontinuity would suggest potential manipulation of treatment assignment---for example, if properties were systematically rezoned to avoid flood hazard designation prior to the event.
+
+```{python}
+#| label: tbl-mccrary
+#| tbl-cap: "McCrary Density Test Results"
+#| echo: false
+
+import pandas as pd
+import sys
+sys.path.insert(0, 'code')
+from _common import load_diagnostic, format_pvalue
+
+df = load_diagnostic("mccrary_density_test")
+df['p_value_fmt'] = df['p_value'].apply(lambda x: format_pvalue(x))
+display_df = df[['boundary', 'discontinuity', 'se', 'z_statistic', 'p_value_fmt', 'n_obs']].copy()
+display_df.columns = ['Boundary', 'Discontinuity', 'SE', 'Z-statistic', 'P-value', 'N']
+display_df['Discontinuity'] = display_df['Discontinuity'].round(3)
+display_df['SE'] = display_df['SE'].round(3)
+display_df['Z-statistic'] = display_df['Z-statistic'].round(2)
+print(display_df.to_markdown(index=False))
+```
+
+@tbl-mccrary reports McCrary test results for both boundaries. For the SFHA boundary, we detect a statistically significant discontinuity in the density of observations. This result merits careful interpretation. The SFHA boundary derives from topographic and hydrological modeling conducted by FEMA---it is not determined by property owners or local officials in ways that would induce strategic sorting. The density discontinuity likely reflects the historical development of flood-prone areas: properties inside the SFHA tend to be older and on larger lots, consistent with earlier development patterns along river corridors.
+
+![McCrary Density Test: SFHA Boundary](figures/fig_mccrary_sfha.png){#fig-mccrary-sfha}
+
+![McCrary Density Test: Inundation Boundary](figures/fig_mccrary_inund.png){#fig-mccrary-inund}
+
+For the inundation boundary, we similarly observe a density discontinuity. The inundation boundary is determined ex post by the physical extent of flooding---a natural phenomenon not subject to manipulation. The discontinuity reflects the same underlying development patterns: areas that flooded tend to have different historical development characteristics than areas that remained dry.
+
+These density discontinuities motivate our covariate-adjusted specifications and our emphasis on the difference-in-differences design, which relies on within-location changes over time rather than cross-sectional comparisons at the boundary.
+
+## B.2 Pre-Trends Validation
+
+The parallel trends assumption is central to our difference-in-differences identification strategy. We test for pre-trends by estimating the full event study specification and conducting a joint F-test of the null hypothesis that all pre-period coefficients equal zero.
+
+```{python}
+#| label: tbl-pretrends
+#| tbl-cap: "Pre-Trends F-Tests"
+#| echo: false
+
+import pandas as pd
+import sys
+sys.path.insert(0, 'code')
+from _common import load_diagnostic, format_pvalue
+
+df = load_diagnostic("pretrends_ftest")
+df['f_pvalue_fmt'] = df['f_pvalue'].apply(lambda x: format_pvalue(x))
+display_df = df[['boundary', 'caliper', 'f_statistic', 'f_pvalue_fmt', 'n_pre_coefs', 'n_obs']].copy()
+display_df.columns = ['Boundary', 'Bandwidth (m)', 'F-statistic', 'P-value', 'Pre-period Coefs', 'N']
+display_df['F-statistic'] = display_df['F-statistic'].round(3)
+print(display_df.to_markdown(index=False))
+```
+
+@tbl-pretrends presents pre-trends test results for both boundaries at multiple bandwidths. The results reveal a critical asymmetry:
+
+**SFHA Boundary**: We reject the null hypothesis of no pre-trends at conventional significance levels (p < 0.001). This indicates that properties inside and outside the SFHA exhibited differential trends prior to the flood event. Given this violation, we interpret SFHA-based estimates with appropriate caution and prioritize the inundation boundary for causal inference.
+
+**Inundation Boundary**: We fail to reject the null hypothesis of no pre-trends at both the 150m (p = 0.336) and 300m (p = 0.152) bandwidths. This supports the identifying assumption that properties on either side of the inundation boundary were evolving in parallel prior to the flood.
+
+The contrast between boundaries is informative: the SFHA represents a longstanding regulatory designation around which substantial sorting may have occurred over decades, while the inundation boundary represents the realized extent of an unexpected natural disaster, providing a cleaner quasi-experiment.
+
+## B.3 Covariate Balance
+
+@tbl-covariate-balance presents covariate balance statistics for properties inside versus outside the SFHA at our primary 300m bandwidth. We report mean differences and standardized differences for key property characteristics.
+
+```{python}
+#| label: tbl-covariate-balance
+#| tbl-cap: "Covariate Balance at SFHA Boundary (300m bandwidth)"
+#| echo: false
+
+import pandas as pd
+import sys
+sys.path.insert(0, 'code')
+from _common import load_diagnostic
+
+df = load_diagnostic("covariate_balance_sfr")
+df_300 = df[df['caliper'] == 300].copy()
+
+display_df = df_300[['label', 'inside_mean', 'outside_mean', 'diff_pct', 'balanced']].copy()
+display_df.columns = ['Covariate', 'Inside SFHA', 'Outside SFHA', 'Diff (%)', 'Balanced']
+display_df['Inside SFHA'] = display_df['Inside SFHA'].round(2)
+display_df['Outside SFHA'] = display_df['Outside SFHA'].round(2)
+display_df['Diff (%)'] = display_df['Diff (%)'].round(1)
+print(display_df.to_markdown(index=False))
+```
+
+The covariate comparisons reveal systematic differences between properties inside and outside the SFHA:
+
+- **Building Age**: Properties inside the SFHA are approximately 17 years older on average (56 vs. 39 years)
+- **Assessed Value**: SFHA properties have 27% lower assessed values
+- **Building Size**: SFHA properties are 15% smaller by square footage
+- **Lot Size**: SFHA properties sit on substantially larger lots (125% larger)
+
+These differences underscore the importance of: (1) covariate adjustment in our regression specifications, and (2) reliance on the difference-in-differences design rather than pure cross-sectional boundary comparisons. The DiD approach differences out time-invariant property characteristics, isolating the causal effect of flood exposure.
+
+![Covariate Balance Visualization](figures/fig_covariate_balance.png){#fig-covariate-balance}
+
+## B.4 Bandwidth Sensitivity
+
+The choice of bandwidth in spatial regression discontinuity designs involves a bias-variance tradeoff. Narrower bandwidths improve local comparability but reduce statistical power; wider bandwidths increase precision but may introduce confounding from properties far from the boundary.
+
+@fig-bandwidth-sfha and @fig-bandwidth-inund present coefficient estimates across a range of bandwidth specifications.
+
+![Bandwidth Sensitivity: SFHA Boundary](figures/fig_bandwidth_sfha.png){#fig-bandwidth-sfha}
+
+![Bandwidth Sensitivity: Inundation Boundary](figures/fig_bandwidth_inund.png){#fig-bandwidth-inund}
+
+```{python}
+#| label: tbl-bandwidth-sensitivity
+#| tbl-cap: "Bandwidth Sensitivity Analysis"
+#| echo: false
+
+import pandas as pd
+import sys
+sys.path.insert(0, 'code')
+from _common import load_diagnostic
+
+try:
+    df = load_diagnostic("bandwidth_sensitivity")
+    display_df = df[['boundary', 'bandwidth', 'estimate', 'se', 'pvalue', 'n_obs']].head(12).copy()
+    display_df.columns = ['Boundary', 'Bandwidth (m)', 'Estimate', 'SE', 'P-value', 'N']
+    display_df['Estimate'] = display_df['Estimate'].round(4)
+    display_df['SE'] = display_df['SE'].round(4)
+    display_df['P-value'] = display_df['P-value'].round(4)
+    print(display_df.to_markdown(index=False))
+except Exception as e:
+    print(f"Table generation error: {e}")
+```
+
+Key findings from the bandwidth sensitivity analysis:
+
+1. **Sale rate effects** are robust across bandwidths from 100m to 500m, with point estimates consistently negative inside the SFHA.
+
+2. **Price effects** show greater sensitivity to bandwidth choice, particularly at the SFHA boundary, consistent with the covariate imbalance documented above.
+
+3. **Inundation boundary** estimates are more stable across specifications, supporting the validity of this boundary for causal inference.
+
+We select 300m as our primary bandwidth based on: (a) sufficient observations for precision, (b) local comparability of treatment and control units, and (c) consistency with prior literature employing similar spatial discontinuity designs.
+
+## B.5 Donut RD Specification
+
+To address potential concerns about SUTVA violations at the boundary (e.g., spillovers between adjacent properties), we estimate donut RD specifications that exclude observations within a small radius of the boundary.
+
+```{python}
+#| label: tbl-donut-rd
+#| tbl-cap: "Donut RD Specifications"
+#| echo: false
+
+import pandas as pd
+import sys
+sys.path.insert(0, 'code')
+from _common import load_diagnostic
+
+try:
+    df = load_diagnostic("donut_rd")
+    display_df = df[['boundary', 'donut_radius', 'estimate', 'se', 'n_obs']].copy()
+    display_df.columns = ['Boundary', 'Donut Radius (m)', 'Estimate', 'SE', 'N']
+    display_df['Estimate'] = display_df['Estimate'].round(4)
+    display_df['SE'] = display_df['SE'].round(4)
+    print(display_df.to_markdown(index=False))
+except Exception as e:
+    print(f"Table generation error: {e}")
+```
+
+The donut specifications yield estimates consistent with the main analysis, suggesting that boundary spillovers do not substantially bias our findings.

@@ -1,0 +1,58 @@
+project:
+  type: default
+  output-dir: _output
+  render:
+    - freeze-rebuild.qmd
+    - appendix-a-data.qmd
+    - appendix-b-identification.qmd
+    - appendix-c-robustness.qmd
+    - appendix-d-decomposition.qmd
+    - appendix-e-mechanisms.qmd
+
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    code-fold: true
+    theme: cosmo
+
+  pdf:
+    documentclass: article
+    papersize: letter
+    geometry:
+      - margin=1in
+    number-sections: true
+    toc: false
+    keep-tex: true
+    include-in-header:
+      text: |
+        \usepackage{booktabs}
+        \usepackage{longtable}
+        \usepackage{float}
+
+  docx:
+    toc: false
+    number-sections: true
+
+bibliography: references.bib
+csl: apa.csl
+
+execute:
+  freeze: auto
+  cache: false
+  warning: false
+  message: false
+  echo: false
+
+crossref:
+  fig-prefix: "Figure"
+  tbl-prefix: "Table"
+  eq-prefix: "Equation"
+  sec-prefix: "Section"
+
+knitr:
+  opts_chunk:
+    echo: false
+    fig.align: center
+    out.width: "100%"
