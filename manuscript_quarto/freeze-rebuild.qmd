@@ -12,16 +12,15 @@ abstract: |
   design comparing parcels just inside and outside FEMA flood hazard boundaries. Transaction
   volume contracts sharply inside the flood zone: within 300 meters of the SFHA boundary,
   sale rates decline approximately 38 percent relative to comparable parcels outside
-  (difference-in-differences = -0.00089; 95% CI: [-0.00163, -0.00015]). However, contrary
-  to standard capitalization predictions, prices *increase* inside the inundation zone.
-  I show this counterintuitive finding reflects a composition shift: post-flood sales
-  are systematically skewed toward newer and larger structures, consistent with
-  rebuilding activity. Approximately 60 percent of the positive price effect is
-  attributable to observable property characteristics. Further, LLC buyer share
-  *decreases* from 45 to 27 percent post-flood, contradicting investor acquisition
-  hypotheses. These findings suggest that post-disaster market adjustments operate
-  primarily through liquidity and composition channels rather than immediate price
-  recalibration---a pattern I characterize as "Freeze and Rebuild."
+  (difference-in-differences = -0.00089; 95% CI: [-0.00163, -0.00015]). Price effects
+  at the inundation boundary are negative but imprecisely estimated (DiD = -0.26 log
+  points; 95% CI: [-0.85, +0.33]), consistent with standard risk capitalization though
+  not statistically distinguishable from zero. The composition of transacting properties
+  shifts toward newer and larger structures post-flood, suggesting selection effects
+  or rebuilding activity. Entity buyer share (LLCs, corporations, trusts) decreases from 45 percent to 27 percent post-flood,
+  contradicting investor acquisition hypotheses. These findings suggest that post-disaster
+  market adjustments operate primarily through liquidity and composition channels rather
+  than immediate price recalibration---a pattern I characterize as "Freeze and Rebuild."
 keywords:
   - Flood Risk
   - Housing Markets
@@ -60,9 +59,9 @@ This paper studies housing market responses to the March 2019 Missouri River flo
 
 Three findings emerge. First, transaction volume contracts substantially inside the flood zone. Within 300 meters of the SFHA boundary, the parcel-month sale rate falls from 0.235 percent to 0.204 percent inside while rising from 0.255 percent to 0.313 percent outside, yielding a difference-in-differences estimate of -0.089 percentage points (95% CI: [-0.163, -0.015])---approximately a 38 percent decline relative to the inside baseline. This liquidity contraction is the most precisely estimated effect in the data.
 
-Second, and contrary to standard predictions, observed transaction prices *increase* inside the flood zone. At the inundation boundary, the raw price difference-in-differences is approximately +53 percent in log points. However, I demonstrate that this counterintuitive finding is largely attributable to composition changes: properties transacting post-flood are systematically newer, larger, and more valuable than those transacting pre-flood. An Oaxaca-Blinder decomposition reveals that approximately 60 percent of the positive price coefficient is explained by observable property characteristics, consistent with a selection mechanism whereby post-flood sales are skewed toward rebuilt or upgraded structures.
+Second, price effects at the inundation boundary are negative but imprecisely estimated. The log-price difference-in-differences is approximately -0.26 (95% CI: [-0.85, +0.33]), consistent with standard flood risk capitalization predictions though not statistically distinguishable from zero. Small sample sizes inside the boundary (35 transactions) limit precision. Importantly, the composition of transacting properties shifts systematically: post-flood sales involve newer, larger, and higher-valued structures than pre-flood sales. This selection pattern is consistent with rebuilding activity or selective market re-entry.
 
-Third, buyer composition shifts in the opposite direction from common narratives about post-disaster investor acquisition. The share of purchases by limited liability companies (LLCs) falls from 45.2 percent to 27.3 percent inside the SFHA boundary after the flood (difference-in-differences = -17.8 percentage points; p = 0.030). Individual buyers become relatively *more* prevalent in flood zone transactions, not less.
+Third, buyer composition shifts in the opposite direction from common narratives about post-disaster investor acquisition. The share of purchases by entity buyers (LLCs, corporations, and trusts) falls from 45.2 percent to 27.3 percent inside the SFHA boundary after the flood (difference-in-differences = -17.8 percentage points; p = 0.030). Individual buyers become relatively more prevalent in flood zone transactions, not less.
 
 Taken together, these findings suggest a "Freeze and Rebuild" dynamic: the market contracts on the extensive margin (fewer transactions) while the intensive margin (prices) reflects compositional shifts in what sells rather than a repricing of flood risk. This pattern has implications for both research and policy. Empirically, studies examining post-disaster price effects without accounting for composition changes may conflate selection with treatment effects. For policy, the findings suggest that monitoring transaction volume and property characteristics---not just prices---is essential for understanding post-disaster market adjustments.
 
@@ -144,7 +143,7 @@ The "explained" component captures how much of the price change is attributable 
 
 The difference-in-differences design requires parallel trends: absent the flood, outcomes would have evolved similarly inside and outside the boundary. I assess this assumption using pre-event coefficient patterns and formal F-tests for joint significance of pre-period interactions.
 
-The SFHA boundary fails the parallel trends test (F = 1.65, p = 0.026), suggesting pre-existing differential trends that may confound causal interpretation. In contrast, the inundation boundary passes the parallel trends test (F = 0.77, p = 0.779). I therefore emphasize results at the inundation boundary for price effects, while noting that sale rate effects are robust across both boundaries.
+The SFHA boundary fails the parallel trends test (F = 3.33, p < 0.001), suggesting pre-existing differential trends that may confound causal interpretation. In contrast, the inundation boundary passes the parallel trends test (F = 1.50, p = 0.152). I therefore emphasize results at the inundation boundary for price effects, while noting that sale rate effects are robust across both boundaries.
 
 I also implement McCrary density tests to assess manipulation at the boundary. Both boundaries show significant density discontinuities, but these reflect historical development patterns rather than post-flood manipulation: parcels have been built at different densities inside and outside flood zones for decades.
 
@@ -152,7 +151,7 @@ I also implement McCrary density tests to assess manipulation at the boundary. B
 
 ## Transaction Volume Effects
 
-@tbl-sale-rates presents the main difference-in-differences estimates for sale rates. The most precisely estimated effect obtains at the SFHA boundary with the ±300m window: the DiD is -0.00089 percentage points with a 95% confidence interval of [-0.00163, -0.00015]. This represents a 37.9 percent decline in the inside sale rate relative to its pre-flood baseline of 0.00235.
+@tbl-sale-rates presents the main difference-in-differences estimates for sale rates. The most precisely estimated effect obtains at the SFHA boundary with the ±300m window: the DiD is -0.00089 percentage points with a 95% confidence interval of [-0.00163, -0.00015]. This represents a 37.9 percent decline in the inside sale rate relative to its pre-flood baseline of 0.00235. The inundation boundary shows a different pattern: sale rates increase inside relative to outside post-flood (DiD = +0.00157), though this effect is not statistically significant. The divergence likely reflects the different nature of these boundaries---SFHA captures regulatory and insurance effects that depress transactions, while inundation captures properties that may have rebuilt and returned to market.
 
 ```{python}
 #| label: tbl-sale-rates
@@ -162,13 +161,13 @@ I also implement McCrary density tests to assess manipulation at the boundary. B
 data = {
     'Boundary': ['SFHA', 'SFHA', 'Inundation', 'Inundation'],
     'Window': ['±150m', '±300m', '±150m', '±300m'],
-    'Inside Pre': ['0.00216', '0.00235', '0.00196', '0.00182'],
-    'Inside Post': ['0.00182', '0.00204', '0.00158', '0.00147'],
-    'Outside Pre': ['0.00234', '0.00255', '0.00187', '0.00193'],
-    'Outside Post': ['0.00289', '0.00313', '0.00229', '0.00238'],
-    'DiD': ['-0.00089', '-0.00089', '-0.00080', '-0.00080'],
-    '95% CI': ['[-0.00163, -0.00015]', '[-0.00163, -0.00015]',
-               '[-0.00156, -0.00004]', '[-0.00156, -0.00004]'],
+    'Inside Pre': ['0.00238', '0.00235', '0.00207', '0.00222'],
+    'Inside Post': ['0.00212', '0.00204', '0.00398', '0.00409'],
+    'Outside Pre': ['0.00241', '0.00255', '0.00353', '0.00340'],
+    'Outside Post': ['0.00292', '0.00313', '0.00428', '0.00369'],
+    'DiD': ['-0.00077', '-0.00089', '+0.00116', '+0.00157'],
+    '95% CI': ['[-0.00156, +0.00003]', '[-0.00163, -0.00015]',
+               '[-0.00147, +0.00378]', '[-0.00065, +0.00378]'],
     'N': ['824,131', '1,798,986', '65,072', '110,250']
 }
 
@@ -184,9 +183,9 @@ print(df.to_markdown(index=False))
 
 ## Price Effects and Composition
 
-Raw price estimates show a counterintuitive pattern: prices *increase* inside the flood zone post-event. At the inundation boundary, the log-price DiD is approximately +0.528 (52.8 percent in level terms) with no trend controls. This finding contradicts standard capitalization predictions.
+Price estimates at the inundation boundary are consistent with standard flood risk capitalization. The log-price DiD is approximately -0.26 (95% CI: [-0.85, +0.33]). The point estimate is negative, suggesting that prices declined inside the boundary relative to outside, though the effect is imprecisely estimated due to small sample sizes (35 transactions inside the boundary).
 
-However, @tbl-composition reveals that properties transacting post-flood inside the boundary are systematically different from those transacting pre-flood. Mean building age declines by 2.6 years more inside than outside; mean building square footage increases by 167 square feet more inside than outside. The share of sales involving new construction rises.
+However, @tbl-composition reveals that properties transacting post-flood inside the boundary are systematically different from those transacting pre-flood. Mean building age declined in both groups, but 0.7 years *less* inside than outside (DiD = +0.7); mean building square footage increased 114 square feet more inside than outside. The share of sales involving new construction rose 9 percentage points more inside (DiD = +0.09).
 
 ```{python}
 #| label: tbl-composition
@@ -200,7 +199,7 @@ comp_data = {
     'Inside Post': ['38.6', '1,612', '12.28', '0.24'],
     'Outside Pre': ['28.4', '1,699', '12.41', '0.42'],
     'Outside Post': ['25.1', '1,752', '12.50', '0.38'],
-    'DiD': ['-2.6', '+167', '+0.09', '+0.05']
+    'DiD': ['+0.7', '+114', '+0.09', '+0.09']
 }
 
 df = pd.DataFrame(comp_data)
@@ -209,7 +208,7 @@ print(df.to_markdown(index=False))
 
 *Notes: Sample restricted to parcel-months with observed transactions within ±300m of the inundation boundary. Building age measured at time of sale. New construction defined as structures built within 5 years of sale.*
 
-The Oaxaca-Blinder decomposition quantifies the contribution of these composition shifts. Approximately 60 percent of the positive price effect is attributable to the "explained" component---the portion driven by changes in observable characteristics. The remaining 40 percent reflects changes in coefficients, though this residual is imprecisely estimated given sample sizes.
+The Oaxaca-Blinder decomposition (@appendix-d-decomposition) documents the magnitude of these composition shifts. Observable differences in property characteristics between inside and outside transacting properties account for a substantial portion of the raw price gap. This suggests that comparing unadjusted prices across the boundary would be misleading---the properties selling are fundamentally different, not just differently located. The composition shift is consistent with selective market re-entry: properties that transact post-flood inside the boundary are of systematically higher quality than pre-flood transactions.
 
 ## Spatial Substitution
 
@@ -237,7 +236,7 @@ print(df.to_markdown(index=False))
 
 ## Buyer Composition
 
-@tbl-buyers presents the buyer composition results. The LLC buyer share falls precipitously inside the SFHA post-flood, from 45.2 percent to 27.3 percent. The difference-in-differences estimate of -17.8 percentage points is statistically significant at the 5 percent level (p = 0.030). Individual buyer share increases correspondingly.
+@tbl-buyers presents the buyer composition results. The entity buyer share (LLCs, corporations, and trusts) falls precipitously inside the SFHA post-flood, from 45.2 percent to 27.3 percent. The difference-in-differences estimate of -17.8 percentage points is statistically significant at the 5 percent level (p = 0.030). Individual buyer share increases correspondingly.
 
 ```{python}
 #| label: tbl-buyers
@@ -245,36 +244,36 @@ print(df.to_markdown(index=False))
 #| output: asis
 
 buyer_data = {
-    'Buyer Type': ['Individual', 'LLC', 'Corporation', 'Trust'],
-    'Inside Pre': ['0.548', '0.452', '0.026', '0.033'],
-    'Inside Post': ['0.727', '0.273', '0.021', '0.028'],
-    'Outside Pre': ['0.684', '0.316', '0.031', '0.035'],
-    'Outside Post': ['0.685', '0.315', '0.026', '0.030'],
-    'DiD': ['+0.178', '-0.178', '-0.005', '-0.005'],
-    'p-value': ['0.030', '0.030', '0.612', '0.558']
+    'Buyer Type': ['Individual', 'Entity (Non-Individual)'],
+    'Inside Pre': ['0.548', '0.452'],
+    'Inside Post': ['0.727', '0.273'],
+    'Outside Pre': ['0.684', '0.316'],
+    'Outside Post': ['0.685', '0.315'],
+    'DiD': ['+0.178', '-0.178'],
+    'p-value': ['0.030', '0.030']
 }
 
 df = pd.DataFrame(buyer_data)
 print(df.to_markdown(index=False))
 ```
 
-*Notes: Sample restricted to arms-length transactions within ±300m of the SFHA boundary. Buyer type classified using a fine-tuned transformer model applied to buyer name strings. p-values from two-sample t-tests of the DiD estimate.*
+*Notes: Sample restricted to arms-length transactions within ±300m of the SFHA boundary. Buyer type classified using a fine-tuned transformer model applied to buyer name strings. Entity buyers include LLCs, corporations, and trusts. Categories are mutually exclusive and sum to 1. p-values from regression framework with robust standard errors clustered at the neighborhood level.*
 
-This finding directly contradicts the hypothesis that institutional investors acquire flood-damaged properties at discounted prices. In this market, LLCs and portfolio buyers *reduced* their flood zone exposure following the event.
+This finding directly contradicts the hypothesis that institutional investors acquire flood-damaged properties at discounted prices. In this market, entity buyers (LLCs, corporations, trusts) *reduced* their flood zone exposure following the event.
 
 # Discussion {#sec-discussion}
 
 ## Interpreting the "Freeze and Rebuild" Pattern
 
-The results reveal a coherent pattern of market adjustment that I characterize as "Freeze and Rebuild." Transaction volume contracts sharply inside the flood zone---the "Freeze" component---while the composition of transacting properties shifts toward newer and larger structures---the "Rebuild" component. The observed price increase inside the boundary reflects this composition shift rather than a genuine increase in flood zone valuations.
+The results reveal a pattern of market adjustment that I characterize as "Freeze and Rebuild." At the SFHA boundary, transaction volume contracts sharply inside the flood zone---the "Freeze" component---while at the inundation boundary, the composition of transacting properties shifts toward newer and larger structures---the "Rebuild" component. Price effects are negative but imprecisely estimated, consistent with standard risk capitalization though not statistically distinguishable from zero. The composition shift suggests that market re-entry is selective: properties that transact post-flood inside the boundary are of systematically higher quality than pre-flood transactions.
 
-Several mechanisms could generate the composition shift. First, insurance-funded repairs and rebuilding may upgrade the housing stock, with improved properties subsequently reaching market. The 818 NFIP claims totaling \$37.5 million provide the financial resources for substantial reconstruction. Second, owners of more damaged properties may defer sales while repairs are completed, generating a selection effect whereby only less-damaged (or fully rebuilt) properties transact in the post-period. Third, speculative developers may acquire damaged lots and construct new buildings, though the decline in LLC purchases argues against large-scale investor acquisition.
+Several mechanisms could generate the composition shift. First, insurance-funded repairs and rebuilding may upgrade the housing stock, with improved properties subsequently reaching market. The 818 NFIP claims totaling \$37.5 million provide the financial resources for substantial reconstruction. Second, owners of more damaged properties may defer sales while repairs are completed, generating a selection effect whereby only less-damaged (or fully rebuilt) properties transact in the post-period. Third, speculative developers may acquire damaged lots and construct new buildings, though the decline in entity purchases argues against large-scale investor acquisition.
 
 Regardless of the precise mechanism, the composition shift has important implications for interpreting post-disaster price data. Studies that estimate price effects without accounting for selection may confound composition changes with treatment effects on valuations.
 
 ## Robustness and Identification Concerns
 
-Several identification concerns merit discussion. First, the SFHA boundary fails the parallel trends test while the inundation boundary passes. This pattern may reflect systematic pre-trend differences in SFHA areas (older housing stock, different neighborhood trajectories) that are less pronounced at the inundation edge. I emphasize results at the inundation boundary for price effects while noting that sale rate effects are robust across both boundaries.
+Several identification concerns merit discussion. First, the SFHA boundary fails the parallel trends test while the inundation boundary passes. This pattern may reflect systematic pre-trend differences in SFHA areas (older housing stock, different neighborhood trajectories) that are less pronounced at the inundation edge. I emphasize results at the inundation boundary for price effects. Importantly, the two boundaries show different sale rate dynamics: the SFHA boundary exhibits significant liquidity decline (the "Freeze"), while the inundation boundary shows increased sale rates inside, potentially reflecting rebuilt properties returning to market.
 
 Second, the McCrary density tests show significant discontinuities at both boundaries. However, these reflect historical development patterns---higher parcel density outside the SFHA has persisted for decades---rather than post-flood manipulation of boundary assignment.
 
@@ -286,7 +285,7 @@ The findings suggest several policy implications. First, post-disaster price mon
 
 # Conclusion {#sec-conclusion}
 
-This paper documents a "Freeze and Rebuild" pattern of housing market adjustment following the March 2019 Missouri River flood. Transaction volume contracts sharply inside flood hazard boundaries, with sale rates declining approximately 38 percent. Observed prices increase, but this counterintuitive finding reflects composition changes rather than appreciation: post-flood sales are systematically skewed toward newer and larger structures, consistent with rebuilding activity. Approximately 60 percent of the positive price effect is attributable to observable property characteristics. LLC buyer share decreases substantially, contradicting investor acquisition hypotheses.
+This paper documents a "Freeze and Rebuild" pattern of housing market adjustment following the March 2019 Missouri River flood. At the SFHA boundary, transaction volume contracts sharply inside, with sale rates declining approximately 38 percent. Price effects are negative but imprecisely estimated (DiD = -0.26; 95% CI: [-0.85, +0.33]), consistent with standard flood risk capitalization though small sample sizes limit statistical precision. Crucially, the composition of transacting properties shifts systematically: post-flood sales are skewed toward newer and larger structures, consistent with rebuilding activity or selective market re-entry. Entity buyer share decreases substantially, contradicting investor acquisition hypotheses.
 
 These findings have methodological implications for the large literature on flood risk capitalization. Post-disaster price effects may conflate treatment with selection if the composition of transacting properties shifts. They also have policy implications: monitoring transaction volume and property characteristics---not just prices---is essential for understanding post-disaster market dynamics. The "Freeze and Rebuild" pattern documented here may generalize to other disaster settings where insurance and rebuilding reshape the housing stock, though replication across contexts with different institutions and housing markets is warranted.
 

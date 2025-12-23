@@ -146,13 +146,47 @@ Key findings from the bandwidth sensitivity analysis:
 
 We select 300m as our primary bandwidth based on: (a) sufficient observations for precision, (b) local comparability of treatment and control units, and (c) consistency with prior literature employing similar spatial discontinuity designs.
 
-## B.5 Donut RD Specification
+## B.5 Boundary Overlap: SFHA × Inundation 2×2 Design
+
+The two boundaries---SFHA (regulatory) and inundation (realized flood extent)---capture different aspects of flood exposure. @tbl-2x2-overlap shows how parcels are distributed across the four cells of the 2×2 design.
+
+```{python}
+#| label: tbl-2x2-overlap
+#| tbl-cap: "Parcel Distribution: SFHA × Inundation Boundary Overlap"
+#| echo: false
+
+import pandas as pd
+
+# 2x2 design counts from panel data
+data = {
+    '': ['Outside SFHA', 'Inside SFHA', 'Total'],
+    'Not Inundated': ['36,009 (94.6%)', '1,477 (3.9%)', '37,486 (98.4%)'],
+    'Inundated': ['110 (0.3%)', '489 (1.3%)', '599 (1.6%)'],
+    'Total': ['36,119 (94.8%)', '1,966 (5.2%)', '38,085 (100%)']
+}
+df = pd.DataFrame(data)
+print(df.to_markdown(index=False))
+```
+
+*Notes: Unique SFR parcels within the study area. Percentages relative to total sample.*
+
+Key observations:
+
+1. **Limited overlap**: Only 1.3% of parcels (489) are both inside the SFHA and experienced inundation. This small cell limits our ability to separately identify SFHA effects from damage effects for inundated properties.
+
+2. **SFHA captures more than inundation**: 75% of inundated parcels (489 of 599) were inside the SFHA, but most SFHA parcels (1,477 of 1,966 = 75%) were not inundated in 2019.
+
+3. **Inundation outside SFHA**: 110 parcels experienced flooding despite being outside the designated flood hazard zone, highlighting the imperfect predictive power of SFHA designations.
+
+This overlap structure motivates our separate analyses by boundary. The inundation boundary isolates the effect of realized flood exposure (physical damage, insurance claims), while the SFHA boundary captures regulatory and insurance effects that may operate even without realized flooding.
+
+## B.6 Donut RD Specification
 
 To address potential concerns about SUTVA violations at the boundary (e.g., spillovers between adjacent properties), we estimate donut RD specifications that exclude observations within a small radius of the boundary.
 
 ```{python}
 #| label: tbl-donut-rd
-#| tbl-cap: "Donut RD Specifications"
+#| tbl-cap: "Donut RD Specifications: Sensitivity to Excluding Near-Boundary Observations"
 #| echo: false
 
 import pandas as pd
@@ -162,13 +196,18 @@ from _common import load_diagnostic
 
 try:
     df = load_diagnostic("donut_rd")
-    display_df = df[['boundary', 'donut_radius', 'estimate', 'se', 'n_obs']].copy()
-    display_df.columns = ['Boundary', 'Donut Radius (m)', 'Estimate', 'SE', 'N']
-    display_df['Estimate'] = display_df['Estimate'].round(4)
-    display_df['SE'] = display_df['SE'].round(4)
+    # Use correct column names from actual data
+    display_df = df[['boundary', 'donut_exclusion_m', 'DiD_donut', 'se_donut', 'n_donut', 'pct_change']].copy()
+    display_df.columns = ['Boundary', 'Donut (m)', 'DiD Estimate', 'SE', 'N', '% Change']
+    display_df['DiD Estimate'] = display_df['DiD Estimate'].apply(lambda x: f"{x:.5f}")
+    display_df['SE'] = display_df['SE'].apply(lambda x: f"{x:.5f}")
+    display_df['N'] = display_df['N'].apply(lambda x: f"{x:,}")
+    display_df['% Change'] = display_df['% Change'].apply(lambda x: f"{x:.1f}%")
     print(display_df.to_markdown(index=False))
 except Exception as e:
     print(f"Table generation error: {e}")
 ```
 
-The donut specifications yield estimates consistent with the main analysis, suggesting that boundary spillovers do not substantially bias our findings.
+*Notes: Donut specifications exclude observations within the specified distance of the boundary. % Change shows how the estimate changes relative to baseline (no exclusion).*
+
+The donut specifications yield estimates broadly consistent with the main analysis. For the SFHA boundary, excluding observations within 50-200m of the boundary produces estimates within 9% of the baseline. For the inundation boundary, estimates are somewhat more sensitive to the donut radius, but remain qualitatively similar. These results suggest that boundary spillovers do not substantially bias our primary findings.

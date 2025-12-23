@@ -318,12 +318,65 @@ data_work/
 
 ---
 
+---
+
+## Finding 9: Differential Geographic Trends (CRITICAL)
+
+**Result**: Trend controls change DiD estimates by 165%
+
+### Pre-Event Growth Differential
+
+| Metric | Inside Zone | Outside Zone | Differential |
+|--------|-------------|--------------|--------------|
+| Annual sales growth (2013-2018) | 28.5% | 21.7% | +6.8pp |
+| Monthly inside share trend | -0.0004 | - | p=0.56 |
+| Differential price trend | -5,380/month | - | p=0.08 |
+
+### Impact on DiD Estimates
+
+| Model | DiD Coefficient | SE | Change |
+|-------|-----------------|-----|--------|
+| Without trend controls | 0.2923 | 0.145 | - |
+| With trend controls | 0.7757 | 0.278 | **+165%** |
+
+### Interpretation
+
+The flooded areas (inside zone) had higher pre-existing housing market growth. When we control for group-specific trends, the estimated treatment effect more than doubles. This raises questions about:
+
+1. **Omitted variable bias**: Are we missing important confounders?
+2. **Trend specification**: How should we model differential growth?
+3. **Counterfactual**: What would have happened inside without the flood?
+
+### Critical Issue: Counterintuitive Sign
+
+Both specifications show **positive** coefficients (prices rising faster inside), which contradicts the "flight" narrative. This requires investigation before manuscript decisions.
+
+**See**: `doc/RESULTS_INTERPRETATION.md` for investigation plan
+
+**See**: `data_work/diagnostics/trend_adjusted_did.csv`, `src/07_estimation/trend_analysis.py`
+
+---
+
 ## Next Steps
 
-1. **Immediate**: Locate or re-download Douglas County parcel data with attributes
-2. **Short-term**: Run covariate balance tests once data available
-3. **Medium-term**: Revise manuscript to address diagnostic findings
-4. **Decision point**: Choose between SFHA (main) vs. inundation (main) based on pre-trends
+### Completed
+- [x] McCrary density test
+- [x] Pre-trends F-test
+- [x] Bandwidth sensitivity
+- [x] Donut RD
+- [x] Covariate balance tests
+- [x] Assessor data integration
+- [x] Trend analysis
+
+### Investigation Required (BLOCKING)
+- [ ] **Investigate counterintuitive positive price effect**
+- [ ] Determine if selection, composition, or specification explains finding
+- [ ] Decide on primary specification (boundary, trend controls)
+
+### After Investigation
+- [ ] Finalize manuscript revisions
+- [ ] Complete supplementary materials
+- [ ] Prepare reviewer response
 
 ---
 

@@ -566,6 +566,52 @@ Test whether treatment changes the composition of buyers (LLC share, portfolio i
 
 ---
 
+### Differential Trend Analysis
+
+Tests whether treatment and control groups had different pre-existing trends that could confound DiD estimates.
+
+#### Rationale
+
+If flooded areas had different market dynamics before the flood (e.g., higher growth due to development pressure), simple DiD may conflate treatment effects with pre-existing trends.
+
+#### Trend-Break Model
+
+Tests for structural break in inside-outside differential at event date:
+
+```
+InsideShare_t = α + β₁·Trend + β₂·Post + β₃·(Trend × Post) + ε
+```
+
+**Interpretation**:
+- β₁: Pre-event trend in inside share
+- β₂: Level shift at event
+- β₃: Change in trend post-event
+
+#### Group-Specific Trend Controls
+
+Extends standard DiD with separate trends for treatment and control groups:
+
+```
+Y_it = α + β₁·Inside + β₂·Post + β₃·(Inside × Post) + γ₁·(Inside × Trend) + γ₂·(Outside × Trend) + ε
+```
+
+**Interpretation**:
+- β₃: Treatment effect controlling for differential trends
+- γ₁ - γ₂: Pre-existing growth differential
+
+#### Key Finding
+
+Trend controls substantially affect DiD estimates (165% change), suggesting potential omitted variable bias. See `doc/RESULTS_INTERPRETATION.md` for investigation notes.
+
+**Output Files**:
+- `data_work/diagnostics/trend_analysis.csv`
+- `data_work/diagnostics/trend_adjusted_did.csv`
+- `figures/fig_trend_analysis.png`
+
+**Code**: `src/07_estimation/trend_analysis.py`
+
+---
+
 ## References
 
 McCrary, J. (2008). Manipulation of the running variable in the regression discontinuity design: A density test. *Journal of Econometrics*, 142(2), 698-714.

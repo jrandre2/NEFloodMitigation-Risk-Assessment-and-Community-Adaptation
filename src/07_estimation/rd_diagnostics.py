@@ -46,7 +46,16 @@ import pandas as pd
 import numpy as np
 import statsmodels.api as sm
 from scipy import stats
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+
+# Import figure styling for consistent manuscript fonts
+try:
+    from src.utils.figure_style import apply_style
+    apply_style()
+except ImportError:
+    pass  # Style module not available, use defaults
 
 # Paths
 PANEL = Path('data_work/panel_parcel_month.parquet')
@@ -615,6 +624,170 @@ def donut_rd(panel: pd.DataFrame, boundary: str, caliper: int,
 
 
 # =============================================================================
+# 5. SUTVA Violation Bounds
+# =============================================================================
+
+def sutva_bounds(
+    panel: pd.DataFrame,
+    boundary: str,
+    caliper: int,
+    ring_spillover_estimate: float = None,
+    ring_spillover_se: float = None
+) -> dict:
+    """
+    Compute bounds on treatment effect accounting for SUTVA violations (spillovers).
+
+    When treatment spills over to control units near the boundary, the standard
+    DiD estimate is biased. This function computes adjusted bounds that account
+    for potential spillover contamination of the control group.
+
+    Parameters
+    ----------
+    panel : pd.DataFrame
+        Parcel-month panel data.
+    boundary : str
+        'sfha' or 'inund'.
+    caliper : int
+        Caliper width in meters.
+    ring_spillover_estimate : float, optional
+        Pre-estimated spillover effect on controls near boundary (from ring model).
+        If None, estimated from data using 0-250m control band.
+    ring_spillover_se : float, optional
+        Standard error of spillover estimate.
+
+    Returns
+    -------
+    dict
+        DiD estimates with SUTVA bounds.
+
+    Notes
+    -----
+    Under SUTVA, we assume: Y_i(D=1) = Y_i(D_i=1) for all i
+    When this fails because nearby treated units affect controls, the control
+    group outcome reflects: Y_control = Y_0 + spillover_effect
+
+    The true treatment effect is bounded:
+    - Lower bound: DiD_raw (assumes no spillover)
+    - Upper bound: DiD_raw + spillover_effect (full spillover correction)
+
+    The spillover_effect represents how much controls near the boundary are
+    "contaminated" by proximity to treated units.
+    """
+    dist_col = f'signed_dist_{boundary}_m'
+    inside_col = f'inside_{boundary}'
+
+    if dist_col not in panel.columns or inside_col not in panel.columns:
+        return {'error': f'Missing columns: {dist_col} or {inside_col}'}
+
+    d = panel.copy()
+    d = d[np.isfinite(d[dist_col])]
+    d = d[d[dist_col].abs() <= caliper].copy()
+
+    d['event_m'] = d['ym'].apply(months_since_event)
+    d['post'] = (d['event_m'] >= 0).astype(int)
+    d['inside'] = (d[inside_col] == 1).astype(int)
+    d['inside_x_post'] = d['inside'] * d['post']
+
+    # Standard DiD estimate
+    X = pd.DataFrame({
+        'const': 1.0,
+        'inside': d['inside'].astype(float),
+        'post': d['post'].astype(float),
+        'inside_x_post': (d['inside'] * d['post']).astype(float)
+    })
+    y = d['sold_this_month'].astype(float)
+
+    model = sm.OLS(y, X).fit(cov_type='HC3')
+    did_raw = model.params.get('inside_x_post', np.nan)
+    did_se = model.bse.get('inside_x_post', np.nan)
+
+    # Estimate spillover effect if not provided
+    if ring_spillover_estimate is None:
+        # Create distance rings for outside parcels
+        outside = d[d['inside'] == 0].copy()
+
+        # Define spillover zone as inner half of the caliper
+        # This ensures we have both "near" and "far" controls within the caliper
+        spillover_threshold = caliper / 2
+
+        outside['near_boundary'] = (outside[dist_col].abs() <= spillover_threshold).astype(int)
+        outside['far_boundary'] = (outside[dist_col].abs() > spillover_threshold).astype(int)
+
+        # Estimate differential change in "near" vs "far" outside zones
+        # This captures how much the near-boundary controls differ from far controls
+        n_near = outside['near_boundary'].sum()
+        n_far = outside['far_boundary'].sum()
+
+        if n_near >= 50 and n_far >= 50:
+            X_spill = pd.DataFrame({
+                'const': 1.0,
+                'near': outside['near_boundary'].astype(float),
+                'post': outside['post'].astype(float),
+                'near_x_post': (outside['near_boundary'] * outside['post']).astype(float)
+            })
+            y_spill = outside['sold_this_month'].astype(float)
+
+            model_spill = sm.OLS(y_spill, X_spill).fit(cov_type='HC3')
+            spillover_estimate = model_spill.params.get('near_x_post', 0)
+            spillover_se = model_spill.bse.get('near_x_post', np.nan)
+        else:
+            # Insufficient variation to estimate spillover; assume zero
+            spillover_estimate = 0
+            spillover_se = np.nan
+    else:
+        spillover_estimate = ring_spillover_estimate
+        spillover_se = ring_spillover_se if ring_spillover_se is not None else np.nan
+
+    # Compute bounds
+    # If controls near boundary are "contaminated" by spillover, they look more like treated
+    # This means the control group counterfactual is too high, biasing DiD downward
+    # True effect = DiD_raw + spillover_correction
+
+    # Lower bound: assume no spillover (DiD as-is)
+    lower_bound = did_raw
+
+    # Upper bound: assume full spillover correction
+    upper_bound = did_raw + abs(spillover_estimate)
+
+    # Compute combined standard error for bounds
+    if np.isfinite(spillover_se):
+        bound_se = np.sqrt(did_se**2 + spillover_se**2)
+    else:
+        bound_se = did_se
+
+    # Calculate proportion of controls in spillover zone
+    spillover_threshold = caliper / 2  # Match the threshold used above
+    n_controls_total = (d['inside'] == 0).sum()
+    n_controls_near = ((d['inside'] == 0) & (d[dist_col].abs() <= spillover_threshold)).sum()
+    pct_controls_near = n_controls_near / n_controls_total * 100 if n_controls_total > 0 else 0
+
+    return {
+        'boundary': boundary,
+        'caliper_m': caliper,
+        'did_raw': did_raw,
+        'did_se': did_se,
+        'spillover_estimate': spillover_estimate,
+        'spillover_se': spillover_se,
+        'lower_bound': lower_bound,
+        'upper_bound': upper_bound,
+        'bound_se': bound_se,
+        'ci_lo_lower': lower_bound - 1.96 * did_se,
+        'ci_hi_lower': lower_bound + 1.96 * did_se,
+        'ci_lo_upper': upper_bound - 1.96 * bound_se,
+        'ci_hi_upper': upper_bound + 1.96 * bound_se,
+        'pct_controls_in_spillover_zone': pct_controls_near,
+        'n_controls_total': n_controls_total,
+        'n_controls_near_boundary': n_controls_near,
+        'n_obs': len(d),
+        'interpretation': (
+            f"True effect bounded in [{lower_bound:.4f}, {upper_bound:.4f}]. "
+            f"If spillovers contaminate {pct_controls_near:.1f}% of controls near boundary, "
+            f"the raw DiD ({did_raw:.4f}) may underestimate the true effect by up to {abs(spillover_estimate):.4f}."
+        )
+    }
+
+
+# =============================================================================
 # Main
 # =============================================================================
 
@@ -740,6 +913,29 @@ def main():
         sfha_donut = donut_df[donut_df['boundary'] == 'sfha']
         print(sfha_donut[['donut_exclusion_m', 'DiD_standard', 'DiD_donut',
                           'pct_change', 'n_donut']].to_string(index=False))
+
+    # 5. SUTVA Bounds
+    print('\n\n5. SUTVA Violation Bounds')
+    print('-'*40)
+
+    sutva_results = []
+    for boundary in ['sfha', 'inund']:
+        for cal in [150, 300]:
+            result = sutva_bounds(panel, boundary, cal)
+            if 'error' not in result:
+                sutva_results.append(result)
+
+                print(f"\n{boundary.upper()} ±{cal}m:")
+                print(f"  Raw DiD: {result['did_raw']:.4f} (SE: {result['did_se']:.4f})")
+                print(f"  Spillover estimate: {result['spillover_estimate']:.4f}")
+                print(f"  SUTVA Bounds: [{result['lower_bound']:.4f}, {result['upper_bound']:.4f}]")
+                print(f"  Controls in spillover zone: {result['pct_controls_in_spillover_zone']:.1f}%")
+
+    if sutva_results:
+        sutva_df = pd.DataFrame([{k: v for k, v in r.items() if k != 'interpretation'}
+                                  for r in sutva_results])
+        sutva_df.to_csv(OUT_DIR / 'sutva_bounds.csv', index=False)
+        print(f"\nWrote {OUT_DIR / 'sutva_bounds.csv'}")
 
     print('\n' + '='*60)
     print('DIAGNOSTICS COMPLETE')

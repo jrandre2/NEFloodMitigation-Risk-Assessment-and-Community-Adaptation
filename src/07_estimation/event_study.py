@@ -51,6 +51,13 @@ import pandas as pd
 import statsmodels.api as sm
 from scipy import stats
 
+# Import figure styling for consistent manuscript fonts
+try:
+    from src.utils.figure_style import apply_style
+    apply_style()
+except ImportError:
+    pass  # Style module not available, use defaults
+
 PANEL = Path('data_work/panel_parcel_month.parquet')
 OUT_DIR = Path('data_work')
 FIG_DIR = Path('figures')

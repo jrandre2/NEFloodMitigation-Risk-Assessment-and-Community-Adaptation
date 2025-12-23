@@ -184,6 +184,127 @@ This document defines the key variables used in the Freeze and Flight analysis.
 | `cell_id` | string | Microcell identifier |
 | `monthly_sales` | integer | Count of sales in cell-month |
 
+### Extended Panel Variables (`panel_parcel_month_extended.parquet`)
+
+Variables from the extended panel construction (Stage 06, `extend_panel.py`).
+
+| Variable | Type | Description |
+|----------|------|-------------|
+| `ym` | string | Year-month (YYYY-MM format), range: 2017-03 to 2022-12 |
+| `event_time` | integer | Months relative to March 2019, range: [-24, +45] |
+| `post` | int (0/1) | Post-flood indicator (event_time >= 0) |
+| `sold_this_month` | int (0/1) | Sale recorded in this parcel-month |
+| `n_sales` | int | Number of sales in parcel-month (typically 0 or 1) |
+| `log_price` | float | Natural log of median sale price (NaN if no sale) |
+
+**COVID-19 Period Indicators**:
+
+| Variable | Type | Period | Description |
+|----------|------|--------|-------------|
+| `covid_lockdown` | int (0/1) | 2020-03 to 2020-06 | Initial COVID lockdown period |
+| `covid_period` | int (0/1) | 2020-03 to 2021-12 | Broader pandemic period |
+
+**Extended Panel Statistics**:
+| Metric | Value |
+|--------|-------|
+| Date range | 2017-03 to 2022-12 |
+| Event time range | t-24 to t+45 |
+| Total months | 70 |
+| Parcels (RD scope) | 38,085 |
+| Panel observations | 2,665,950 |
+| Total sales | 8,313 |
+| Pre-flood sales (t<0) | 2,368 |
+| Post-flood sales (t>=0) | 5,945 |
+| COVID period sales | 3,185 |
+
+---
+
+## NFIP Variables
+
+Variables from National Flood Insurance Program data integration (Stage 00, `load_nfip.py`).
+
+### Claims Data (`nfip_claims_nebraska.parquet`)
+
+| Variable | Type | Description |
+|----------|------|-------------|
+| `censusTract` | string | 11-digit census tract ID |
+| `countyCode` | string | 5-digit FIPS county code |
+| `dateOfLoss` | date | Date of flood loss event |
+| `yearOfLoss` | int | Year extracted from dateOfLoss |
+| `amountPaidOnBuildingClaim` | float | Payment for building damage (USD) |
+| `amountPaidOnContentsClaim` | float | Payment for contents damage (USD) |
+| `totalBuildingInsuranceCoverage` | float | Total building coverage limit (USD) |
+| `totalContentsInsuranceCoverage` | float | Total contents coverage limit (USD) |
+| `waterDepth` | float | Reported water depth (feet, often missing) |
+
+**Note**: NFIP lat/lon coordinates are obfuscated for privacy; analysis uses census tract aggregation.
+
+### Tract Summary (`tract_nfip_summary.parquet`)
+
+| Variable | Type | Description |
+|----------|------|-------------|
+| `censusTract` | string | 11-digit census tract ID |
+| `n_claims_total` | int | Total claims in tract (all years) |
+| `n_claims_2019` | int | Claims in 2019 flood year |
+| `total_payment_total` | float | Total payments all years (USD) |
+| `total_payment_2019` | float | Total payments in 2019 (USD) |
+| `mean_water_depth_2019` | float | Average reported water depth in 2019 (feet) |
+
+**Key Statistics (Nebraska)**:
+| Metric | Value |
+|--------|-------|
+| Total claims (1978-2023) | 6,062 |
+| Claims in 2019 | 818 (15.7× historical average) |
+| Total payments (1978-2023) | $92.3M |
+| Payments in 2019 | $37.5M (40.7% of total) |
+| Unique tracts with 2019 claims | 155 |
+
+---
+
+## Buyer Distance Variables
+
+Variables from owner address geocoding (Stage 05, `geocode_buyer_addresses.py`).
+
+### Geocoded Addresses (`owner_addresses_geocoded.parquet`)
+
+| Variable | Type | Description |
+|----------|------|-------------|
+| `parcel_id` | string | Parcel identifier |
+| `input_address` | string | Original owner mailing address |
+| `match_status` | string | Geocoding result: "Match", "No_Match", "Tie" |
+| `match_type` | string | Match quality: "Exact", "Non_Exact" |
+| `matched_address` | string | Standardized matched address |
+| `coordinates` | string | Geocoded coordinates (lon,lat) |
+| `lat` | float | Latitude of owner address (WGS84) |
+| `lon` | float | Longitude of owner address (WGS84) |
+
+### Owner Distances (`owner_distances.parquet`)
+
+| Variable | Type | Unit | Description |
+|----------|------|------|-------------|
+| `parcel_id` | string | - | Parcel identifier |
+| `owner_lat` | float | degrees | Owner address latitude |
+| `owner_lon` | float | degrees | Owner address longitude |
+| `parcel_lat` | float | degrees | Parcel centroid latitude |
+| `parcel_lon` | float | degrees | Parcel centroid longitude |
+| `distance_miles` | float | miles | Great-circle (haversine) distance owner to parcel |
+| `distance_band` | string | - | Categorical distance band |
+| `out_of_state` | int (0/1) | - | Owner outside Nebraska |
+
+**Distance Bands**:
+| Band | Description |
+|------|-------------|
+| `<10mi` | Local owner (within 10 miles) |
+| `10-50mi` | Regional owner (10-50 miles) |
+| `50-100mi` | In-state distant (50-100 miles) |
+| `100-500mi` | Multi-state regional (100-500 miles) |
+| `>500mi` | Distant/national investor (>500 miles) |
+
+**Technical Notes**:
+- Uses Census Geocoder batch API (free, rate-limited)
+- Typical match rate: ~81%
+- Distance calculated using haversine formula (Earth radius = 3,959 miles)
+
 ---
 
 ## Estimation Output Variables
@@ -367,6 +488,38 @@ Variables from identification diagnostic tests (Stage 07b).
 | `outside_post` | float | Mean outcome outside, post-flood |
 | `did_estimate` | float | DiD estimate: (inside_post - inside_pre) - (outside_post - outside_pre) |
 | `pval` | float | P-value for DiD estimate |
+
+### Trend Analysis (`trend_analysis.csv`)
+
+| Variable | Type | Description |
+|----------|------|-------------|
+| `caliper_m` | int | Caliper window in meters |
+| `start_year` | int | Start year for analysis |
+| `end_year` | int | End year for analysis |
+| `n_sales` | int | Number of sales in sample |
+| `pretrend_coef` | float | Inside × Trend coefficient (differential pre-trend) |
+| `pretrend_se` | float | Standard error |
+| `pretrend_pval` | float | P-value for differential pre-trend |
+| `trend_break_pre` | float | Pre-event trend in inside share |
+| `trend_break_post_shift` | float | Level shift at event date |
+| `trend_break_change` | float | Change in trend post-event |
+
+### Trend-Adjusted DiD (`trend_adjusted_did.csv`)
+
+| Variable | Type | Description |
+|----------|------|-------------|
+| `model` | string | Specification: "no_trends" or "with_trends" |
+| `did_coef` | float | DiD treatment effect coefficient |
+| `did_se` | float | Robust standard error |
+| `did_pval` | float | P-value |
+| `did_ci_lo` | float | Lower 95% confidence interval |
+| `did_ci_hi` | float | Upper 95% confidence interval |
+| `inside_trend` | float | Inside group time trend (with_trends only) |
+| `outside_trend` | float | Outside group time trend (with_trends only) |
+| `n_obs` | int | Number of observations |
+| `r_squared` | float | R-squared of regression |
+
+**Key Finding**: DiD coefficient changes 165% when trend controls are added (0.29 → 0.78).
 
 ---
 

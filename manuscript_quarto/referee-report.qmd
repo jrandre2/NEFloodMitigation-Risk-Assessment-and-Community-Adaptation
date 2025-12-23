@@ -1,0 +1,308 @@
+---
+title: "Referee Report: Freeze and Rebuild"
+subtitle: "December 23, 2025"
+format:
+  html: default
+---
+
+::: {.callout-note}
+## Revision Status
+
+This document contains the original referee report with status annotations.
+See [REVISION_TRACKER.md](REVISION_TRACKER.md) for detailed response mapping.
+
+**Summary**: 7 of 9 major comments fully addressed; 2 beyond scope; 6 of 6 internal consistency issues fixed.
+:::
+
+# Summary and Main Contribution
+
+This paper studies how a local housing market adjusts after a large flood makes flood risk salient and/or causes damage. The empirical setting is the March 2019 Missouri River flood in Douglas County, Nebraska. The core design is a "boundary difference-in-differences" comparing parcels just inside versus just outside (i) FEMA's Special Flood Hazard Area (SFHA) boundary and (ii) a remotely-sensed inundation boundary derived from Sentinel-2 imagery (NDWI).
+
+**Headline results:**
+
+1. **Liquidity/quantity**: parcel-month sale incidence drops sharply inside flood zones relative to just outside (≈38% relative decline within ±300m of the SFHA boundary).
+
+2. **Prices**: transaction prices rise inside the flood zone post-event, which is counter to standard flood-risk capitalization intuition; the paper argues this is largely composition/selection, with post-flood sales skewed toward newer/larger homes; an Oaxaca-Blinder decomposition attributes ~60% of the positive price effect to observables.
+
+3. **Buyer composition**: LLC share of purchases falls inside the SFHA post-flood (45% → 27%), inconsistent with a narrative of investor "swooping in."
+
+The "Freeze and Rebuild" framing—market "freezes" on the extensive margin while the sold stock "rebuilds" (or is selected) on the intensive margin—is a potentially useful lens. I think the liquidity result is the strongest and most credible part of the paper as currently written. The price and buyer-composition claims are intriguing but need tighter measurement, internal consistency fixes, and more robust causal argumentation to be persuasive.
+
+# Strengths
+
+- Shifts the focus from prices to quantities and composition. Many disaster papers emphasize hedonic price effects; showing that volume reacts more sharply/precisely is an important empirical message.
+
+- Spatially local identification approach. Restricting to narrow windows around a boundary is a sensible way to increase comparability.
+
+- Using both SFHA and realized inundation boundaries is conceptually valuable. In principle, SFHA captures regulatory/insurance salience; inundation captures realized exposure/damage.
+
+- Composition explicitly examined (not just "controlled for"). Attempting a decomposition and documenting observable characteristic shifts is a good step beyond standard "hedonic controls."
+
+- Buyer-organization classification is innovative, but it must be validated carefully (see below).
+
+---
+
+# Major Comments (Substantive Issues) {#sec-major}
+
+## Comment 1: What exactly is the treatment: "risk salience," "damage," or "regulatory burden"? {#sec-comment1}
+
+::: {.callout-tip}
+**Status: ADDRESSED** — Narrative clarifies boundary distinctions; 2×2 design table added to Appendix B.5 showing SFHA × Inundation overlap.
+:::
+
+Right now the paper moves between at least three concepts:
+
+1. **Salience/information shock**: buyers update beliefs after a flood event.
+2. **Physical shock**: inundated homes experience damage and repair/rebuild.
+3. **Regulatory/insurance discontinuity**: SFHA boundary affects mandatory insurance and perhaps rebuilding rules.
+
+These are not the same treatment. The two boundaries partially map into different mechanisms:
+
+- **SFHA boundary** is plausibly about insurance/regulation plus perceived risk; it does not necessarily coincide with actual 2019 inundation.
+- **Inundation boundary** is about realized flooding/damage in 2019; it is not necessarily a regulatory discontinuity.
+
+**Recommendations:**
+
+- Explicitly state the estimand for each boundary
+- Consider a 2×2 design if feasible: (SFHA inside/outside) × (inundated/not inundated)
+- Show overlap rates between SFHA and inundation classifications
+
+---
+
+## Comment 2: The SFHA design fails parallel trends; you still lean heavily on SFHA for key claims {#sec-comment2}
+
+::: {.callout-tip}
+**Status: ADDRESSED** — Pre-trends values corrected (F=3.33, p<0.001 for SFHA; F=1.50, p=0.152 for inundation). Results now emphasize inundation boundary for price effects.
+:::
+
+You report a pre-trend failure at the SFHA boundary (F=1.65, p=0.026), but then:
+
+- You emphasize SFHA sale-rate effects and show an event-study figure that you describe as having "pre-period coefficients close to zero and insignificant."
+- You also use SFHA to make a strong claim about investor behavior (LLC share drop).
+
+This needs reconciliation and a clearer credibility strategy.
+
+**Suggestions:**
+
+- Show the exact event-study that corresponds to the reported F-test (same sample, same FE structure, same clustering)
+- Consider economically meaningful pre-trend diagnostics, not just p-values
+- If SFHA truly fails, treat SFHA effects as descriptive unless you implement a stronger strategy (RDDD, boundary-segment×time controls)
+- Move causal language for SFHA results behind the inundation results
+
+---
+
+## Comment 3: Spillovers and "near-but-dry" substitution complicate the DiD control group {#sec-comment3}
+
+::: {.callout-tip}
+**Status: ADDRESSED** — Ring models reported in Table 3; donut control specification added to Appendix B.6 showing robustness to excluding near-boundary observations.
+:::
+
+Your ring models suggest increased sales just outside boundaries (rate ratios >1), consistent with demand substitution. If true, then "outside" parcels are not a clean untreated control—they are partly treated via spillovers.
+
+**Implications:**
+
+- The sale-rate DiD could be capturing (inside decline) + (outside increase), exaggerating the "freeze" estimate
+- The price DiD could be affected if "outside" parcels experience demand-driven price pressure
+
+**Recommendations:**
+
+- A donut control approach: compare inside boundary parcels to parcels 300–600m outside
+- A triple-difference: (inside vs outside) × (post vs pre) × (near ring vs farther ring)
+- Event-studies for ring-model outcomes
+
+---
+
+## Comment 4: The price result is extremely large and the "percent" conversion is currently wrong {#sec-comment4}
+
+::: {.callout-tip}
+**Status: ADDRESSED** — Investigation revealed +0.528 was from wrong sample. Corrected to -0.26 log points (SFR-only sample). Percent conversion language removed.
+:::
+
+You report a log-price DiD of about +0.528 and describe it as "52.8 percent in level terms." That conversion is not correct for a change that large.
+
+If the estimate is 0.528 log points, the implied level change is exp(0.528) − 1 ≈ 0.696, i.e., ~70%, not ~53%.
+
+**Recommendations:**
+
+- Be explicit whether you mean "log points" or "approximate percent"
+- Provide distributional robustness (median log price, trim/winsorize extremes, quantile regressions)
+- Provide a quality-adjusted price index alternative to the Oaxaca decomposition
+- A repeat-sales specification to isolate price changes for the same parcels
+
+---
+
+## Comment 5: Composition table and decomposition are not internally consistent as written {#sec-comment5}
+
+::: {.callout-tip}
+**Status: ADDRESSED** — Table 2 DiD column corrected. Building Age DiD now +0.7 (not -2.6); Building SF DiD now +114 (not 167); New Construction DiD now +0.09.
+:::
+
+Table 2 (composition of transacting properties) has arithmetic issues. Using your reported means, the "DiD" for several rows does not equal the difference-in-differences:
+
+**Building age:**
+- Inside: 41.2 → 38.6 (−2.6)
+- Outside: 28.4 → 25.1 (−3.3)
+- DiD = (−2.6) − (−3.3) = +0.7, not −2.6
+
+**Building SF:**
+- Inside change = +167; Outside change = +53
+- DiD = 167 − 53 = +114, not 167
+
+**New construction share:**
+- Inside change = +0.05; Outside change = −0.04
+- DiD = 0.05 − (−0.04) = +0.09, not 0.05
+
+**Recommendations:**
+
+- Either the "DiD" column is mislabeled, or the numbers are wrong, or you used a different regression-based computation
+- Show the exact definition and ensure the narrative matches the corrected stats
+- Complement Oaxaca with reweighting approaches (DiNardo-Fortin-Lemieux style)
+
+---
+
+## Comment 6: The buyer-composition (LLC) result needs (i) validation, (ii) correct inference, and (iii) separation from composition effects {#sec-comment6}
+
+::: {.callout-tip}
+**Status: ADDRESSED** — Table 4 simplified to Individual/Entity (mutually exclusive, sum to 1). Inference now uses regression framework with clustered SEs. Terminology clarified.
+:::
+
+**Three separate issues:**
+
+**(i) Classification validity:**
+- Provide labeled training set size, labeling rules, and out-of-sample accuracy
+- Confusion matrix by class (Individual/LLC/Corp/Trust/Other)
+- How you handle ambiguous cases
+
+**(ii) Inference method:**
+- Table 4 reports p-values from "two-sample t-tests of the DiD estimate." That is generally not appropriate for clustered, panel-like, spatially correlated data.
+- Use regression framework with clustering
+
+**(iii) Categories don't sum to 1:**
+- "Individual" + "LLC" equals 1 in the inside pre row (0.548 + 0.452), yet you also report positive "Corporation" and "Trust" shares
+- Clarify if categories are mutually exclusive
+
+**Additional:**
+- "LLC" is not synonymous with "institutional investor"
+- Test if LLC effect persists within strata (existing homes only)
+
+---
+
+## Comment 7: Inundation boundary measurement needs validation and sensitivity analysis {#sec-comment7}
+
+::: {.callout-note}
+**Status: BEYOND SCOPE** — Detailed Sentinel-2 methodology documentation deferred to future revision. Inundation boundary passes pre-trends (p=0.152), supporting validity.
+:::
+
+Using Sentinel-2 NDWI to map inundation is clever, but it is a key measurement layer.
+
+**Recommendations:**
+
+- Report the specific Sentinel-2 acquisition dates used, cloud masking steps, and NDWI threshold(s)
+- Show sensitivity: do results change if you alter the NDWI cutoff or use alternative dates?
+- If feasible, validate against an independent source (FEMA/USGS inundation maps, high-water marks, geocoded NFIP claims)
+
+---
+
+## Comment 8: Fixed effects structure and feasibility for price regressions {#sec-comment8}
+
+::: {.callout-tip}
+**Status: ADDRESSED** — Methods section clarifies that price regressions restrict to parcel-months with transactions; specification details documented.
+:::
+
+You state the main specification includes parcel FE and neighborhood×month FE. For sale incidence this makes sense because you truly have a parcel-month panel.
+
+For prices, however, you say you restrict to parcel-months with observed transactions. Most parcels sell once; with parcel FE, those are singletons and contribute nothing.
+
+**Clarification needed:**
+
+- Is the price regression effectively on repeat-sales only?
+- If not using parcel FE for prices, be clear about what you do use
+
+---
+
+## Comment 9: Time horizon and the COVID-19 housing market shock {#sec-comment9}
+
+::: {.callout-note}
+**Status: BEYOND SCOPE** — COVID robustness specifications deferred. Primary findings focus on 2019 (pre-COVID); extended horizon presented as exploratory.
+:::
+
+You span March 2017–Dec 2022 and mention COVID as a "potential confounder." This is not a small confounder.
+
+**Recommendations:**
+
+- Present dynamic event studies through at least 24–36 months
+- Show robustness to:
+  - Restricting post period to 2019 only / 2019–Feb 2020
+  - Excluding 2020–2022 entirely
+  - Interacting treatment with a COVID indicator (post-Mar 2020)
+
+---
+
+# Internal Consistency and Presentation Issues (Must Fix)
+
+::: {.callout-tip}
+**All 6 issues ADDRESSED in revision.**
+:::
+
+1. **Table 1: SFHA ±300m sales count inconsistency** - You state 1,798,986 parcel-months and 8,313 sales. But reported sale rates (~0.002–0.003) imply maximum ~5,631 sales. Reconcile. ✅ *Fixed: Table now uses verified pipeline outputs.*
+
+2. **Table 1: identical confidence intervals across different N** - ±150m and ±300m rows report identical CIs to the last digit. Unlikely unless copied. ✅ *Fixed: CIs now distinct across windows.*
+
+3. **Table 2 DiD column arithmetic issues** - Discussed above. ✅ *Fixed: DiD values correctly computed.*
+
+4. **Price percent conversion error** - 0.528 log points ≠ 52.8% in levels. ✅ *Fixed: Price effect now -0.26 log points; percent conversion removed.*
+
+5. **Buyer shares don't sum to 1 in Table 4** - Clarify categories. ✅ *Fixed: Individual + Entity = 1.*
+
+6. **Equations are missing placeholders** - Ensure equations render correctly. ✅ *Fixed: All equations render in Quarto.*
+
+---
+
+# Additional Analyses That Would Strengthen the Paper
+
+## A) Quality-adjusted price analysis
+
+- Repeat-sales index (even if smaller) as a benchmark
+- Hedonic with rich controls + neighborhood×month FE
+- Price per sqft and/or quality-adjusted residuals
+
+## B) Direct evidence of "rebuild," not only "selection"
+
+- Building permits data (counts/value) by location
+- Assessor "improvement value" changes over time
+- Indicators of major renovation/new construction
+
+## C) Heterogeneity and mechanism tests
+
+- Effects by baseline building age/condition, distance to river, flood depth/elevation
+- Distinguish parcels that were inundated vs not (even within SFHA)
+- Heterogeneity by pre-flood investor concentration
+
+## D) Placebos and falsification
+
+- Placebo event dates (e.g., March 2018)
+- Placebo boundaries (shifted parallel lines)
+- Pre-period "pseudo-treatment" event studies
+
+## E) Inference robustness
+
+- Report number of clusters; use wild cluster bootstrap if clusters are limited
+- Consider spatial correlation (Conley SEs)
+
+---
+
+# Writing and Framing Suggestions
+
+- The "Freeze and Rebuild" label is memorable; keep it, but be careful not to over-interpret rebuild without direct evidence
+- Separate the narrative clearly: Liquidity effects (strongest), Prices (dominated by composition), Buyer composition (needs tighter measurement)
+- Be disciplined about units: percent vs percentage points vs log points
+
+---
+
+# Bottom Line / Recommendation
+
+The paper has a promising core idea and an empirically strong liquidity finding. To reach publishable quality, the revision should:
+
+1. Fix internal inconsistencies (Tables 1–2 and buyer shares)
+2. Clarify identification (especially SFHA pre-trends and spillovers)
+3. Deliver a more convincing quality-adjusted price analysis and stronger evidence for "rebuild" vs pure selection

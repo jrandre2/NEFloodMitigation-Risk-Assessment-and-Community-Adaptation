@@ -51,6 +51,13 @@ import statsmodels.api as sm
 from scipy import stats
 from tqdm import tqdm
 
+# Import figure styling for consistent manuscript fonts
+try:
+    from src.utils.figure_style import apply_style
+    apply_style()
+except ImportError:
+    pass  # Style module not available, use defaults
+
 PANEL = Path('data_work/panel_parcel_month.parquet')
 OUT_DIR = Path('data_work/diagnostics')
 FIG_DIR = Path('figures')
