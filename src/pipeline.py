@@ -35,6 +35,14 @@ quantile_effects : Run quantile treatment effects analysis
 extended_horizon : Run extended horizon persistence analysis
 mechanism_analysis : Run mechanism investigation (insurance, credit, info)
 run_all_diagnostics : Run complete diagnostics suite
+trend_analysis : Test for differential geographic trends (supplementary)
+decompose_price_effect : Decompose price effect by property type/age
+rate_price_reconciliation : Reconcile sale rate and price findings
+seller_selection : Analyze seller selection post-flood
+buyer_analysis_extended : Extended buyer composition analysis
+alternative_trends : Test alternative trend specifications
+investigation_report : Generate investigation summary report
+run_investigation : Run all investigation scripts
 
 Usage
 -----
@@ -141,6 +149,46 @@ def parse_args() -> argparse.Namespace:
                        help='Caliper in meters (default: 300)')
     p_all.add_argument('--skip-permutation', action='store_true',
                        help='Skip slow permutation tests')
+
+    # Trend Analysis
+    p_trend = sub.add_parser('trend_analysis')
+    p_trend.add_argument('--caliper', '-c', type=int, default=300,
+                         help='Caliper in meters (default: 300)')
+    p_trend.add_argument('--start-year', type=int, default=2010,
+                         help='Start year for analysis (default: 2010)')
+    p_trend.add_argument('--end-year', type=int, default=2022,
+                         help='End year for analysis (default: 2022)')
+
+    # Investigation Scripts
+    p_decomp = sub.add_parser('decompose_price_effect')
+    p_decomp.add_argument('--caliper', '-c', type=int, default=300,
+                          help='Caliper in meters (default: 300)')
+
+    p_rate = sub.add_parser('rate_price_reconciliation')
+    p_rate.add_argument('--caliper', '-c', type=int, default=300,
+                        help='Caliper in meters (default: 300)')
+
+    p_seller = sub.add_parser('seller_selection')
+    p_seller.add_argument('--caliper', '-c', type=int, default=300,
+                          help='Caliper in meters (default: 300)')
+
+    p_buyer = sub.add_parser('buyer_analysis_extended')
+    p_buyer.add_argument('--caliper', '-c', type=int, default=300,
+                         help='Caliper in meters (default: 300)')
+
+    p_alt = sub.add_parser('alternative_trends')
+    p_alt.add_argument('--caliper', '-c', type=int, default=300,
+                       help='Caliper in meters (default: 300)')
+    p_alt.add_argument('--start-year', type=int, default=2015,
+                       help='Start year (default: 2015)')
+    p_alt.add_argument('--end-year', type=int, default=2022,
+                       help='End year (default: 2022)')
+
+    sub.add_parser('investigation_report')
+
+    p_invest = sub.add_parser('run_investigation')
+    p_invest.add_argument('--caliper', '-c', type=int, default=300,
+                          help='Caliper in meters (default: 300)')
 
     return p.parse_args()
 
@@ -256,6 +304,72 @@ def main():
             caliper=args.caliper,
             skip_permutation=args.skip_permutation
         )
+    elif args.cmd == 'trend_analysis':
+        import importlib
+        mod = importlib.import_module('07_estimation.trend_analysis')
+        mod.main(
+            caliper=args.caliper,
+            start_year=args.start_year,
+            end_year=args.end_year
+        )
+    elif args.cmd == 'decompose_price_effect':
+        import importlib
+        mod = importlib.import_module('07_estimation.decompose_price_effect')
+        mod.main(caliper_m=args.caliper)
+    elif args.cmd == 'rate_price_reconciliation':
+        import importlib
+        mod = importlib.import_module('07_estimation.rate_price_reconciliation')
+        mod.main(caliper_m=args.caliper)
+    elif args.cmd == 'seller_selection':
+        import importlib
+        mod = importlib.import_module('07_estimation.seller_selection_analysis')
+        mod.main(caliper_m=args.caliper)
+    elif args.cmd == 'buyer_analysis_extended':
+        import importlib
+        mod = importlib.import_module('07_estimation.buyer_analysis_extended')
+        mod.main(caliper_m=args.caliper)
+    elif args.cmd == 'alternative_trends':
+        import importlib
+        mod = importlib.import_module('07_estimation.alternative_trends')
+        mod.main(
+            caliper_m=args.caliper,
+            start_year=args.start_year,
+            end_year=args.end_year
+        )
+    elif args.cmd == 'investigation_report':
+        import importlib
+        mod = importlib.import_module('07_estimation.investigation_report')
+        mod.main()
+    elif args.cmd == 'run_investigation':
+        import importlib
+        caliper = args.caliper
+        print("="*70)
+        print("RUNNING COMPLETE INVESTIGATION SUITE")
+        print("="*70)
+
+        # Run each investigation script in order
+        scripts = [
+            ('decompose_price_effect', {'caliper_m': caliper}),
+            ('rate_price_reconciliation', {'caliper_m': caliper}),
+            ('seller_selection_analysis', {'caliper_m': caliper}),
+            ('buyer_analysis_extended', {'caliper_m': caliper}),
+            ('alternative_trends', {'caliper_m': caliper, 'start_year': 2015, 'end_year': 2022}),
+            ('investigation_report', {}),
+        ]
+
+        for script_name, kwargs in scripts:
+            print(f"\n{'='*70}")
+            print(f"Running: {script_name}")
+            print("="*70)
+            try:
+                mod = importlib.import_module(f'07_estimation.{script_name}')
+                mod.main(**kwargs)
+            except Exception as e:
+                print(f"Error in {script_name}: {e}")
+
+        print("\n" + "="*70)
+        print("INVESTIGATION COMPLETE")
+        print("="*70)
 
 if __name__ == '__main__':
     main()
