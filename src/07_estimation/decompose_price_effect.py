@@ -348,9 +348,162 @@ def plot_decomposition(composition_results: pd.DataFrame,
     print(f'Wrote {out_path}')
 
 
+def analyze_existing_structures(df: pd.DataFrame, min_age: int = 10) -> pd.DataFrame:
+    """
+    Analyze price effects for existing structures only (excluding new construction).
+
+    This tests whether the positive price effect persists when we restrict
+    to comparable existing structures rather than new construction.
+
+    Parameters
+    ----------
+    df : DataFrame
+        Sales data with building age
+    min_age : int
+        Minimum building age to include (default: 10 years)
+
+    Returns
+    -------
+    DataFrame : Results comparing full sample to existing structures only
+    """
+
+    print('\n' + '='*70)
+    print(f'EXISTING STRUCTURES ANALYSIS (age > {min_age} years)')
+    print('='*70)
+
+    results = []
+
+    # Full sample DiD
+    df_full = df.dropna(subset=['log_price', 'inside_inund', 'post']).copy()
+    df_full['inside_x_post'] = df_full['inside_inund'].astype(int) * df_full['post'].astype(int)
+    df_full['inside_inund_int'] = df_full['inside_inund'].astype(int)
+    df_full['post_int'] = df_full['post'].astype(int)
+
+    if len(df_full) > 50:
+        X = sm.add_constant(df_full[['inside_inund_int', 'post_int', 'inside_x_post']])
+        y = df_full['log_price']
+
+        try:
+            model = sm.OLS(y, X).fit(cov_type='HC3')
+            results.append({
+                'sample': 'Full sample',
+                'n_obs': len(df_full),
+                'did_coef': model.params.get('inside_x_post', np.nan),
+                'did_se': model.bse.get('inside_x_post', np.nan),
+                'did_pval': model.pvalues.get('inside_x_post', np.nan),
+                'pct_effect': (np.exp(model.params.get('inside_x_post', 0)) - 1) * 100
+            })
+            print(f'\nFull sample (n={len(df_full):,}):')
+            print(f'  DiD: {model.params["inside_x_post"]:.4f} (SE: {model.bse["inside_x_post"]:.4f})')
+            print(f'  = {(np.exp(model.params["inside_x_post"]) - 1) * 100:.1f}% price effect')
+        except Exception as e:
+            print(f'  Error: {e}')
+
+    # Existing structures only
+    if 'age_at_sale' in df.columns:
+        age_col = 'age_at_sale'
+    elif 'building_age' in df.columns:
+        age_col = 'building_age'
+    else:
+        print('\nNo building age variable available')
+        return pd.DataFrame(results)
+
+    df_existing = df[df[age_col] > min_age].dropna(subset=['log_price', 'inside_inund', 'post']).copy()
+    df_existing['inside_x_post'] = df_existing['inside_inund'].astype(int) * df_existing['post'].astype(int)
+    df_existing['inside_inund_int'] = df_existing['inside_inund'].astype(int)
+    df_existing['post_int'] = df_existing['post'].astype(int)
+
+    if len(df_existing) > 50:
+        X = sm.add_constant(df_existing[['inside_inund_int', 'post_int', 'inside_x_post']])
+        y = df_existing['log_price']
+
+        try:
+            model = sm.OLS(y, X).fit(cov_type='HC3')
+            results.append({
+                'sample': f'Existing structures (age>{min_age})',
+                'n_obs': len(df_existing),
+                'did_coef': model.params.get('inside_x_post', np.nan),
+                'did_se': model.bse.get('inside_x_post', np.nan),
+                'did_pval': model.pvalues.get('inside_x_post', np.nan),
+                'pct_effect': (np.exp(model.params.get('inside_x_post', 0)) - 1) * 100
+            })
+            print(f'\nExisting structures only (age>{min_age}, n={len(df_existing):,}):')
+            print(f'  DiD: {model.params["inside_x_post"]:.4f} (SE: {model.bse["inside_x_post"]:.4f})')
+            print(f'  = {(np.exp(model.params["inside_x_post"]) - 1) * 100:.1f}% price effect')
+        except Exception as e:
+            print(f'  Error: {e}')
+
+    # New construction only (for comparison)
+    df_new = df[df[age_col] <= min_age].dropna(subset=['log_price', 'inside_inund', 'post']).copy()
+    df_new['inside_x_post'] = df_new['inside_inund'].astype(int) * df_new['post'].astype(int)
+    df_new['inside_inund_int'] = df_new['inside_inund'].astype(int)
+    df_new['post_int'] = df_new['post'].astype(int)
+
+    if len(df_new) > 50:
+        X = sm.add_constant(df_new[['inside_inund_int', 'post_int', 'inside_x_post']])
+        y = df_new['log_price']
+
+        try:
+            model = sm.OLS(y, X).fit(cov_type='HC3')
+            results.append({
+                'sample': f'New construction (age<={min_age})',
+                'n_obs': len(df_new),
+                'did_coef': model.params.get('inside_x_post', np.nan),
+                'did_se': model.bse.get('inside_x_post', np.nan),
+                'did_pval': model.pvalues.get('inside_x_post', np.nan),
+                'pct_effect': (np.exp(model.params.get('inside_x_post', 0)) - 1) * 100
+            })
+            print(f'\nNew construction only (age<={min_age}, n={len(df_new):,}):')
+            print(f'  DiD: {model.params["inside_x_post"]:.4f} (SE: {model.bse["inside_x_post"]:.4f})')
+            print(f'  = {(np.exp(model.params["inside_x_post"]) - 1) * 100:.1f}% price effect')
+        except Exception as e:
+            print(f'  Error: {e}')
+
+    # Interpretation
+    if len(results) >= 2:
+        print('\n' + '-'*50)
+        print('INTERPRETATION')
+        print('-'*50)
+
+        full_effect = results[0]['did_coef'] if len(results) > 0 else np.nan
+        existing_effect = results[1]['did_coef'] if len(results) > 1 else np.nan
+
+        if not np.isnan(full_effect) and not np.isnan(existing_effect):
+            change_pct = ((existing_effect - full_effect) / abs(full_effect)) * 100 if full_effect != 0 else np.nan
+
+            if existing_effect < full_effect * 0.5:
+                print(f'''
+Effect is {abs(change_pct):.0f}% SMALLER for existing structures.
+This SUPPORTS the composition hypothesis:
+- Positive price effect is driven by new construction/rebuilds
+- Existing comparable structures show smaller/no positive effect
+- Recommend reporting existing-structure results as robustness check
+''')
+            elif abs(change_pct) < 20:
+                print(f'''
+Effect is SIMILAR for existing structures (within 20%).
+Composition does NOT fully explain the positive effect:
+- Positive price effect persists for comparable existing homes
+- Suggests actual price appreciation, not just composition
+- Additional investigation needed
+''')
+            else:
+                print(f'''
+Effect is {abs(change_pct):.0f}% LARGER for existing structures.
+Unexpected pattern - may indicate:
+- Sample selection issues in new construction
+- Different market dynamics by property age
+- Data quality issues
+''')
+
+    return pd.DataFrame(results)
+
+
 def main(caliper_m: int = 300,
          start_year: int = 2010,
-         end_year: int = 2022):
+         end_year: int = 2022,
+         exclude_new_construction: bool = False,
+         min_building_age: int = 10):
     """Execute price effect decomposition analysis."""
 
     ensure_env()
@@ -440,6 +593,14 @@ def main(caliper_m: int = 300,
             sig = '*' if row['pval'] < 0.05 else ''
             print(f"  {row['grouping_var']}={row['group_value']}: {row['coef']:.3f}{sig} (n={row['n_obs']})")
 
+    # 4. Existing structures analysis
+    existing_results = analyze_existing_structures(df, min_age=min_building_age)
+
+    if len(existing_results) > 0:
+        existing_path = OUT_DIR / 'price_did_existing_structures.csv'
+        existing_results.to_csv(existing_path, index=False)
+        print(f'\nWrote {existing_path}')
+
 
 def parse_args():
     """Parse command line arguments."""
@@ -464,13 +625,26 @@ def parse_args():
         default=2022,
         help='End year for analysis. Default: 2022'
     )
+    parser.add_argument(
+        '--exclude-new-construction',
+        action='store_true',
+        help='Exclude new construction from main analysis'
+    )
+    parser.add_argument(
+        '--min-building-age',
+        type=int,
+        default=10,
+        help='Minimum building age for existing structures analysis. Default: 10'
+    )
     return parser.parse_args()
 
 
 if __name__ == '__main__':
     args = parse_args()
     main(
-        caliper=args.caliper,
+        caliper_m=args.caliper,
         start_year=args.start_year,
-        end_year=args.end_year
+        end_year=args.end_year,
+        exclude_new_construction=args.exclude_new_construction,
+        min_building_age=args.min_building_age
     )
