@@ -1,0 +1,549 @@
+Who Owns the Floodplain? Organizational Form, Portfolio Scale, and Regulatory Flood Exposure in Douglas County, Nebraska 
+Abstract
+This study develops a novel analytics pipeline to address a critical gap in urban flood governance: understanding who owns flood-exposed properties, not just where they are located. Using all single-family residential parcels in Douglas County, Nebraska, we link property ownership to regulatory floodplains as defined by FEMA's Special Flood Hazard Areas. The methodology classifies owners into five organizational forms—Individual, LLC, Corporation, Trust, and Government/Nonprofit—and by portfolio scale using a fine-tuned BERT transformer model. A modified Poisson regression with neighborhood fixed effects is used to estimate the association between owner type and flood exposure, controlling for parcel attributes and micro-spatial heterogeneity. Our findings reveal that ownership structure is a significant correlate of flood exposure at the parcel level. After adjusting for confounders, single parcel LLCs exhibit the highest risk of exposure, with a 67% higher risk than single-parcel Individuals. Multi-parcel Corporations and multi-parcel LLCs also show significantly elevated exposure. Single parcel LLCs have greater exposure than their multi-parcel counterparts, whereas multi-parcel Corporations have greater exposure than single-parcel ones. This reproducible framework provides a nuanced, transferable tool for making ownership visible, enabling more precise and equitable floodplain governance.
+Keywords: Flood Exposure; Ownership Structure; Urban Analytics; Limited Liability Companies (LLCs); Floodplain Management 
+1. Introduction
+Flooding is the most common and among the costliest natural disasters in the United States (FEMA 2025). While regulatory flood maps can identify where risk is located, they reveal little about who holds that risk—a critical blind spot for disclosure, mitigation, insurance, and recovery. The need to link mapped hazard to owners is made more urgent by evidence that flood risk is not fully priced into property values: recent national estimates of housing overvaluation in flood‑exposed areas suggest that many market participants misperceive or discount the hazard they are acquiring (Gourevitch et al., 2023). In short, effective urban flood governance requires visibility into both the geography of hazard and the ownership of that hazard. This paper addresses that measurement challenge with a city‑scale analytics pipeline and applies it to all single‑family residential (SFR) parcels in Douglas County, Nebraska. 
+An obstacle in this type of research is that common operational definitions—such as absentee flags based on mailing address mismatches or neighborhood‑level renter shares—flatten heterogeneity among owners and risk conflating distance with exposure (Petrzelka et al., 2013; Ulrich‑Schad et al., 2016). These proxies can obscure differences in objectives, information sets, and liability structures between, for example, Individuals, Trusts, and business entities. Building on a decision‑based view of owners, we therefore replace generic absentee measures with a tractable taxonomy defined at the owner‑of‑record level. We classify owners into five mutually exclusive organizational forms—Individual, LLC, Corporation, Trust, Government/Nonprofit—and cross this with portfolio scale measured via an exact name match. Organizational form and scale together encode distinct incentives and capacities and can be observed consistently in assessor files at city scale (Robsky Huntley et al., 2022; An et al., 2024; Cook et al., 2024). 
+Our contribution is methodological as well as substantive. We assemble an pipeline that: (i) uses a fine‑tuned transformer to assign organizational form from owner‑of‑record strings; (ii) aggregates parcels to the legal name to measure portfolio scale; (iii) overlays assessor parcels with FEMA Special Flood Hazard Areas (SFHAs) to define regulatory exposure; and (iv) estimates parcel‑level associations using a modified Poisson model with a log link (Zou, 2004) and neighborhood fixed effects to absorb micro‑spatial heterogeneity. Spatial autocorrelation motivates the use of fixed effects, and a concentration module quantifies how parcels located in SFHAs are distributed across owners within each form via Lorenz curves and Gini coefficients. We retain the legal shell as the unit of analysis—rather than fully consolidating to beneficial owners—to preserve the ability to test liability‑siloing mechanisms associated with single‑asset LLCs; registry‑based linkage can be layered as an extension where appropriate (Hangen & O’Brien, 2024; Travis, 2019). 
+Our expectations draw from three strands of scholarship. First, when hazard is discounted or imperfectly capitalized, more transactional or return-seeking owners may sort into higher‑risk assets if expected returns compensate for losses. Evidence from property markets and post-disaster single‑family rental strategies suggest systematic targeting of lower cost or distressed submarkets and differences in yield across places (Bin & Polasky, 2004; Atreya & Ferreira, 2015; Immergluck & Law, 2014a, 2014b; Colburn et al., 2021; Demers & Eisfeldt, 2022; Gourevitch et al., 2023). Second, information frictions can disadvantage remote owners with proximity shaping both acquisition and ongoing management (Petrzelka et al., 2013; Ulrich‑Schad et al., 2016; Fields, 2022; D’Lima & Schultz, 2021). Third, in rental settings, principal–agent problems and compliance dynamics interact with legal form: landlords do not directly bear tenant losses from flooding; code maintenance varies with investor type; and single-asset LLCs can fragment liability in ways that complicate enforcement (Ellen et al., 2013; Rose & Harris, 2022; Harrison et al., 2025; Travis, 2019). These mechanisms motivate contrasts across LLC and Corporation portfolios versus Individual and Trust holdings, and, crucially, comparisons within each form between single-parcel and multi‑parcel entities.
+To operationalize these theoretical expectations, our study investigates the systematic patterns linking ownership structure to flood exposure. We organize the analysis around three questions. (i) First, how do unadjusted rates of location within SFHAs differ across organizational forms—Individual, LLC, Corporation, Trust, and Government/Nonprofit—and between single-parcel and multi‑parcel owners, and do these patterns differ for vacant versus improved parcels? (ii) Second, conditional on parcel attributes and neighborhood context, do organizational form and portfolio scale remain associated with SFHA exposure when estimated in a modified Poisson framework that reports interpretable risk ratios? (iii) Third, within each organizational form, do single-parcel owners differ from multi‑parcel owners in how often their parcels fall within SFHAs, consistent with liability siloing among single-asset LLCs and scale dynamics among corporations?
+By centering organizational form and portfolio scale—and by embedding these dimensions in a transparent, reproducible city‑scale pipeline—this study moves beyond a binary absentee/local lens to a measurement framework that connects legal structures and operating scale to the geography of regulatory flood exposure. The approach is designed to be transferable: it relies on widely available assessor data, an auditable classification step, and neighborhood fixed effects that hold micro‑spatial heterogeneity constant while preserving policy‑relevant interpretability. In doing so, we aim to make who holds mapped flood exposure empirically visible in a way that supports both urban analytics and actionable governance.  2. Literature Review
+2.1 National Context: Flood Risk and Information
+Flooding is among the costliest weather‑related hazards in the United States (FEMA, 2025). A consistent national finding is that regulatory flood risk is imperfectly capitalized in property prices: recent estimates place the overvaluation of flood‑exposed homes between $121–$237 billion, implying systematic information gaps among buyers and lenders (Gourevitch et al., 2023). These conditions make who holds mapped risk—not just where it lies—central for disclosure, mitigation, insurance take‑up, and recovery policy. 
+2.2 Ownership & Flood Exposure Mechanisms
+2.2.1 Investor Sorting & Portfolio Strategy
+After 2008, professionalized single‑family rental investors concentrated acquisitions in distressed, lower‑price submarkets and scaled up operationally (Immergluck & Law, 2014a, 2014b; Colburn et al., 2021). Returns vary with geography and price tier, with yield‑seeking strategies more common in lower‑price areas (Demers & Eisfeldt, 2022). If SFHA locations transact at discounts (Bin & Polasky, 2004; Atreya & Ferreira, 2015) while risk remains imperfectly priced (Gourevitch et al., 2023), more transactional or risk‑tolerant owners may sort toward flood‑designated parcels when expected returns compensate for expected losses. City‑specific work documenting the footprint of large corporate SFR owners underscores how scale and strategy can shape spatial exposure (Ding et al., 2025).
+2.2.2 Proximity and Information Frictions
+Platform‑enabled management reduces some costs of distance (Fields, 2022), yet proximity still correlates with information disadvantages: out‑of‑town buyers often underperform locals (D’Lima & Schultz, 2021), and non‑local landholders report weaker local knowledge (Petrzelka et al., 2013; Ulrich Schad et al., 2016). In Douglas County specifically, a companion analysis documents a steep proximity gradient in SFR floodplain siting, motivating distance as a secondary robustness control (Andrews et al., 2025). 
+2.2.3 Operational Factors and Liability
+In rental settings, principal–agent frictions can dampen incentives to mitigate or maintain relative to owner‑occupancy (Wilson et al., 2021). Empirically, non‑owner‑occupied rentals exhibit higher code violations (Ellen et al., 2013; Rose & Harris, 2022), and recent work links investor type to property condition (Harrison et al., 2025). Legal structure also matters. Single asset LLCs can silo liability, complicating enforcement and potentially concentrating risk (Travis, 2019). If higher‑risk parcels are deliberately parked in single parcel LLCs, within‑form contrasts should be informative.
+2.3 Identifying Owners with Natural Language Processing
+Recent work shows that an owner's legal form can be inferred directly from the name string in public records using transformer-based models. For example, Arimond et al. (2023) fine-tuned BERT-family models on over a million entities defined by ISO 20275 legal form codes. They found that these models were more accurate than traditional baselines, providing strong evidence that modern language models can reliably capture the morphology and tokens of legal entity names, even with varied punctuation and abbreviations.
+This machine learning approach is further supported by complementary benchmarks showing that a hybrid of machine learning and rules-based systems outperforms rules-only extraction methods (Kruse et al., 2021). These findings encourage a move beyond simple regex heuristics for labeling organizational forms like LLCs, corporations, and trusts. 
+NLP is now routine for turning unstructured government records into research data. Thomas et al. (2024) apply OCR and named‑entity recognition to millions of eviction filings, extracting addresses and parties for neighborhood‑level analysis—evidence that county‑scale NLP over administrative text is feasible and portable to assessor contexts.
+2.4 Developing an Owner Typology
+SFR studies typically distinguish corporate vs. non‑corporate owners and then bin by portfolio size, but thresholds and definitions vary across the literature, complicating comparisons (Goodman et al., 2023; U.S. GAO, 2024). City and regional practice likewise blend legal form, scale, and geography when classifying owners for analysis or administration (An et al., 2024; Hangen & O’Brien, 2024; Torres, 2024).
+Against this backdrop, our typology is directly observable from land records, machine‑learnable at scale and policy‑salient for rental licensure and disclosure. While many studies focus on identifying ultimate beneficial owners by consolidating properties held across different legal shells (An et al., 2024; Hangen & O’Brien, 2024; Shelton & Seymour, 2024), our study intentionally retains the legal owner-of-record. This methodological choice is crucial for directly testing for liability siloing dynamics within single-asset LLCs—patterns that can be obscured by immediate beneficial-owner consolidation (Travis, 2019).
+Our design addresses recurrent measurement challenges by replacing coarse absentee flags, which can conflate owner distance with risk sorting, with this more nuanced typology. By classifying organizational form with a transformer, measuring portfolio scale via exact name matches, and using neighborhood fixed effects, our approach isolates ownership patterns from micro-spatial heterogeneity while keeping the unit of analysis aligned with regulatory practice. This overall design aligns with calls for decision‑based typologies that link observed owner choices to measurable outcomes (Cook et al., 2024).
+2.5 Synthesis & Hypotheses
+The literatures above jointly imply testable expectations our study examines with parcel‑level data and neighborhood fixed effects. If hazard is under‑capitalized (Gourevitch et al., 2023) and professionalized owners target discounted assets (Bin & Polasky, 2004; Atreya & Ferreira, 2015; Demers & Eisfeldt, 2022; Immergluck & Law, 2014a, 2014b; Colburn et al., 2021; Ding, Zhang, & Diep, 2025), then LLCs and Corporations—especially multi‑parcel portfolios—should display elevated SFHA incidence relative to Individuals/Trusts, all else equal. If liability siloing is a salient organizing principle (Travis, 2019), single parcel LLCs should be more exposed than multi‑parcel LLCs within form. Finally, if proximity shapes information and operations (Petrzelka et al., 2013; Ulrich Schad et al., 2016; D’Lima & Schultz, 2021; Fields, 2022; Andrews et al., 2025), adding distance controls should not overturn—but may attenuate—form‑by‑scale differences. We operationalize these expectations in a modified Poisson framework with a log link that reports interpretable risk ratios (Zou, 2004), embedding them in a reproducible urban‑analytics pipeline suited to cross‑city replication. 
+3. Data & Methods
+3.1 Study Area & Outcome Variable
+This study examines all SFR parcels within Douglas County, Nebraska using data from the 2022 assessment roll. Our unit of analysis is the individual parcel, although any given owner may hold multiple properties.
+The primary outcome variable is a binary indicator for regulatory flood exposure. A parcel is considered exposed if most of its area intersects with a FEMA SFHA, which includes any combination of Zones A, AE, AO, or AH. Applying our majority-area rule, 2,029 of the 184,333 SFR parcels in the county meet the criterion for flood exposure. A comprehensive list of all variables, their definitions, and their transformations is provided in Table 1.
+Table 1. Variables and transformations 
+Variable
+Definition & source
+Unit
+Transform 
+Notes
+SFHA exposure
+Parcel majority area within Zones A/AE/AO/AH
+Indicator
+0–1
+10% overlap sensitivity checks boundary effects
+Total value
+Assessed parcel value
+USD
+Natural log
+Core control
+Acres
+Assessor parcel size
+Acres
+Natural log
+Core control
+Improvement status
+Building presence from assessor/footprints
+Indicator
+0–1
+Used in descriptive splits & sensitivity
+Owner type
+Organizational form from classifier
+Category
+onehot
+Individual; LLC; Corporation; Trust; Gov/Nonprofit
+Portfolio scale
+Parcels per exact owner name
+Count
+single vs multi
+Exact match on ownerofrecord
+Entity × Scale
+Cross of owner type & scale
+Categories
+onehot
+10 mutually exclusive groups; Individual  Single Parcel owners are the reference
+Neighborhood
+Assessor appraisal neighborhood
+Categories
+onehot
+Fixed effects; 470 groups
+Owner distance
+Greatcircle km: parcel centroid to owner ZIP centroid
+Kilometers
+Natural log
+Secondary robustness control
+3.2 Classifying Owner Type & Scale
+To create our ownership typology, we first classified the owner-of-record for every parcel into one of five mutually exclusive organizational forms: Individual, LLC, Corporation, Trust, or Government/Nonprofit. The classification process was performed using a fine-tuned BERT sequence classifier. The model was trained on a corpus of 2,520 hand-labeled owner names. Its accuracy was validated using three-fold cross-validation and a stratified human audit. When deployed countywide, the model achieved 97.8 percent high-confidence coverage, a figure that rose to 98.3 percent for the single-family residential parcels central to this study. 
+Our results confirm that the transformer model effectively captures the distinct morphology and tokens of legal entity names, significantly outperforming a simpler rules-only baseline (Arimond et al., 2023). Full details on the classifier's configuration, training, and performance are available in Tables S3 and S4 in the Supplementary Material, with a summary of the resulting owner type distribution in Table 4. 
+Next, we measured each owner’s portfolio scale using an exact name match in the assessor data. An owner name that appeared on exactly one parcel was coded as single parcel, while names appearing on two or more parcels were coded as multi-parcel. Crossing the five organizational forms with these two scale categories produced the ten analytic groups used in our regression models. For this analysis, we retained the legal shell as the primary unit to preserve our ability to detect behaviors associated with single asset LLCs, such as liability siloing. The final portfolio size distributions for each entity type are reported in Table 3.
+Table 3. Local portfolio footprint distribution by organizational form (SFR) 
+Entity type
+Singleparcels
+Singleparcel %
+Multiparcels
+Multiparcel %
+Total
+Individual
+131,436
+86.32
+20,826
+13.68
+152,262
+LLC
+4,725
+23.04
+15,782
+76.96
+20,507
+Corporation
+762
+30.36
+1,748
+69.64
+2,510
+Trust
+5,295
+82.54
+1,120
+17.46
+6,415
+Gov/Nonprofit
+803
+30.43
+1,836
+69.57
+2,639
+Total
+143,021
+77.59
+41,312
+22.41
+184,333
+
+Table S3. Ownership classifier configuration and training (see Supplementary Material) 
+Component
+Setting
+Base model
+BERTbaseuncased with 5way Softmax head
+Labels emitted
+Individual; LLC; Corporation; Trust; Gov/Nonprofit
+Training data
+2,520 handlabeled names (augmented to 5,040)
+Loss & regularization
+Focal loss; classificationhead dropout = 0.20
+Model selection
+3fold CV; early stopping on validation weighted F1
+Reliability checks
+Probability calibration; stratified human audit
+Highconfidence rule
+p̂ max ≥ 0.80 used for robustness subset
+Deployment scope
+212,310 owner records countywide
+
+Table S4. Production classification coverage and high-confidence shares (see Supplementary Material)
+Owner type
+Count
+Percent
+Highconfidence count
+Highconfidence coverage %
+Individual
+162,079
+76.3
+161,409
+99.6
+LLC
+29,161
+13.7
+27,722
+95.1
+Corporation
+5,588
+2.6
+4,169
+74.6
+Trust
+7,006
+3.3
+6,844
+97.7
+Gov/Nonprofit
+8,476
+4.0
+7,516
+88.7
+Total
+212,310
+100.0
+207,660
+97.8
+
+Table 4. SFR owner-type distribution 
+Owner type
+Count
+Percent
+Individual
+152,260
+82.60
+LLC
+20,507
+11.12
+Trust
+6,415
+3.48
+Gov/Nonprofit
+2,639
+1.43
+Corporation
+2,510
+1.36
+Total
+184,333
+100.00
+
+3.3 Variables & Transformations
+To isolate the effect of ownership, our models include several control variables to account for parcel characteristics. The core controls are a parcel's total assessed value and its size in acres. To better meet model assumptions, both variables were log-transformed. 
+The primary explanatory variable is a set of ten mutually exclusive categories created by crossing the five owner types with the two portfolio scale classifications. In the regression models, individual single parcel owners serve as the reference group. A comprehensive dictionary of all variables is available in Table 1.
+3.4 Spatial Diagnostics 
+A preliminary spatial analysis revealed that both flood exposure and certain ownership forms are not randomly distributed but instead exhibit significant geographic clustering. To formally test this, we calculated the global Moran’s I statistic, a measure of spatial autocorrelation. The test confirmed strong clustering for parcels located in flood hazard areas (I = 0.783) and significant, though more moderate, clustering for parcels owned by LLCs (I = 0.268) and Corporations (I = 0.196). A subsequent LISA (Local Indicators of Spatial Association) analysis identified the specific locations of these hotspots, revealing numerous high-risk clusters that align with the county's hydrography and known investment patterns.
+This high degree of spatial clustering could confound the relationship between ownership and flood exposure. To address this, our primary model incorporates neighborhood fixed effects. This approach statistically controls for all unobserved, time-invariant characteristics shared by parcels within the same assessor neighborhood, such as localized drainage patterns, elevation, and historical subdivision design. By absorbing this micro-spatial heterogeneity, the fixed effects allow for a more robust estimate of the association between ownership structure and flood exposure. 
+3.5 Model Specifications
+To estimate the association between a parcel's ownership structure and its flood exposure, we use a modified Poisson generalized linear model (GLM) with a log link. This specific model is chosen because it allows the exponentiated coefficients to be directly interpreted as risk ratios (RR), which are more intuitive than odds ratios for a binary outcome in prospective studies (Zou, 2004). To ensure the statistical validity of our findings, we use HC3 robust standard errors.
+The model is designed to isolate the effect of ownership by holding key confounding factors constant. The linear predictor includes indicator variables for each of the ten owner-types by portfolio-scale groups, controls for the log-transformed total value and acreage of the parcel, and a full set of neighborhood fixed effects. The results are presented as risk ratios for each owner group relative to single-parcel Individuals, along with their 95 percent confidence intervals. A catalog of all model variants and the samples used for each is provided in Table 5.
+Table 5. Model specifications 
+Label
+Specification
+Distance term
+Neighborhood FE
+full SFR
+ highconf.
+FE groups
+M0
+Entity × Scale indicators 
+—
+No
+184,333
+181,156
+—
+M1
+M0 + log(value) + log(acres)
+—
+No
+184,333
+181,156
+—
+M2 (primary)
+M1 + neighborhood FE
+—
+Yes
+182,911
+179,797
+470
+M3
+M1 + log(1+distance)
+Continuous
+No
+184,333
+181,156
+—
+M4
+M1 + log(1+distance) + neighborhood FE
+Continuous
+Yes
+182,911
+179,797
+470
+3.6 Multiple Testing & Interpretation
+This study was designed to test several key hypotheses. The primary, prespecified contrast compares the flood exposure of single parcel LLCs to our reference group of single parcel owning individuals. We also conduct secondary analyses to explore the role of portfolio scale within each organizational form, using Wald tests to compare single- and multi-parcel owners for LLCs, Corporations, Trusts, and Government/Nonprofits. To account for these multiple comparisons, we control the false discovery rate (FDR) using the Benjamini-Hochberg procedure (Benjamini & Hochberg, 1995). To make the model's outputs more intuitive, we translate the adjusted risk ratios into expected baseline differences, expressing the results as the number of flood-exposed parcels per 1,000 for each group.
+In a separate descriptive analysis, we seek to quantify how the ownership of flood-exposed parcels is concentrated within each organizational form. For this, we construct Lorenz curves and calculate Gini coefficients at the owner-of-record level. This analysis involves two comparisons: first, we examine the distribution of SFHA parcels among only those owners who hold at least one such property; second, we take a broader view that included all owners of a given type, even those with zero SFHA holdings. This dual approach allows us to understand concentration both among the affected owners and across the owner category broadly. Finally, we use two-sample Kolmogorov-Smirnov tests to assess distributional differences.
+3.7 Data Exclusions and Robustness Checks
+We exclude parcels with missing ownership labels, invalid or missing geometry, or missing value. We reestimate all models on the highconfidence subset (p̂ max ≥ 0.80), and the key contrasts persist. Exposure results are stable when switching from the majorityarea to the 10 percent overlap rule. 
+4. Results
+
+Figure 1. Map of Douglas County Single Family Residential Parcels by Entity Type
+ Unless otherwise noted, estimates adjust for parcel value and parcel size and include neighborhood fixed effects. The estimation sample for the primary fixedeffects specification is 182,911 parcels across 470 neighborhoods; unadjusted and core models without fixed effects use 184,333 parcels. The SFR entity by parcel is mapped in Figure 1.
+4.1 Unadjusted SFHA Rates
+A preliminary review of the data reveals that the unadjusted rates of flood exposure differ markedly across the various ownership structures and portfolio sizes. Table 6 provides a detailed breakdown of the parcel counts and the unadjusted incidence of SFHA location for each of the ten ownership groups.
+Individuals are the most common owner type, accounting for most single-family parcels, while LLCs are the next most frequent. Although the overall rate of SFHA exposure in the study area is low at approximately 1.1 percent, a few groups stand out with much higher raw rates. Specifically, single parcel LLCs and single parcel corporations have noticeably higher incidences of flood exposure than the reference group of individual single parcel owners. 
+Table 6. Counts and unadjusted SFHA rates by organizational form and portfolio scale 
+Entity & Scale
+Parcels
+% of SFR 
+SFHA rate (%)
+SFHA per 1,000
+Individual — Single
+131,436
+71.30
+0.81
+8.1
+Individual — Multi
+20,826
+11.30
+1.25
+12.5
+LLC — Single
+4,725
+2.56
+4.83
+48.3
+LLC — Multi
+15,782
+8.56
+1.48
+14.8
+Corporation — Single
+762
+0.41
+4.07
+40.7
+Corporation — Multi
+1,748
+0.95
+2.92
+29.2
+Trust — Single
+5,295
+2.87
+1.19
+11.9
+Trust — Multi
+1,120
+0.61
+2.59
+25.9
+Government/Nonprofit — Single
+803
+0.44
+3.24
+32.4
+Government/Nonprofit — Multi
+1,836
+1.00
+2.18
+21.8
+Total
+184,333
+100.00
+1.10
+11.0
+4.2 Concentration of SFHA holdings
+
+Figure 2. Concentration of single‑family SFHA‑located parcels by organizational form
+
+The distribution of flood-exposed parcels is not even; instead, it is highly concentrated, with a relatively small number of owners holding a disproportionate share of exposed properties. Figure 2 illustrates this using Lorenz curves and Gini coefficients, which measure the inequality of the distribution for each organizational form.
+Among owners holding at least one SFHA parcel, corporations and government/nonprofit entities exhibit the highest concentration, with Gini coefficients of approximately 0.748 and 0.704, respectively. Holdings by LLCs are also significantly concentrated (Gini ≈ 0.564), while the distribution among Individuals and Trusts is comparatively more diffuse.
+However, when the analysis is expanded to include all owners of a given type, even those with zero SFHA parcels, the concentration of exposure within the individual and trust categories rises sharply. This indicates that while many individuals and trusts own single-family parcels, the burden of regulatory flood exposure is concentrated among a small subset of these owners. 
+4.3 Primary Model Estimates
+Figure 3. Adjusted RRs for SFHA Locations by Ownership Structure and Portfolio Size
+The RRs from our primary modified Poisson specification, which incorporates parcel controls and neighborhood fixed effects, are detailed in Table 7. The results reveal that a parcel’s flood exposure is systematically associated with its owner's organizational form and portfolio scale after accounting for relevant parcel characteristics. 
+The most striking finding is the comparison between single parcel LLCs and single parcel individuals. After adjusting for other factors, single parcel LLCs have a 67% higher risk of SFHA exposure. Other owner types also show significantly elevated exposure compared to the single-parcel individual owner reference group. Specifically, multi-parcel corporations have a 62.2% higher risk and multi-parcel LLCs have a 37.9% higher risk. The trend is also present among individuals, where those holding multiple parcels have a 20.9% greater risk than their single parcel counterparts. A modest scale gradient is also observed for trusts, with multi-parcel trust holdings showing a significantly higher risk, while single-parcel trusts do not. In contrast, parcels held by government or nonprofit entities show no significant difference in flood exposure from the baseline. 
+Table 7. Adjusted risk of SFHA location by organizational form and portfolio scale 
+Group
+Risk Ratio
+95% CI
+pvalue
+Individual — Single
+1.000
+—
+—
+Individual — Multi
+1.209*
+1.038–1.407
+.015
+LLC — Single
+1.670***
+1.311–2.126
+< .001
+LLC — Multi
+1.379**
+1.104–1.722
+< .001
+Corporation — Single
+0.989
+0.626–1.563
+.963
+Corporation — Multi
+1.568
+0.960–2.561
+.073
+Trust — Single
+0.844
+0.612–1.165
+.303
+Trust — Multi
+1.459*
+1.043–2.041
+.028
+Government/Nonprofit — Single
+0.994
+0.480–2.059
+.987
+Government/Nonprofit — Multi
+0.792
+0.348–1.799
+.577
+Significance codes: *** 0.001, ** 0.01, * 0.05. ModifiedPoisson GLM with log link; HC3 robust SEs; neighborhood fixed effects; controls for assessed value and parcel size. 
+4.4 Withinform Contrasts 
+To isolate the role of portfolio scale, we conducted comparisons between single-parcel and multi-parcel owners within each organizational form. As detailed in Table 8, this analysis reveals distinct and opposing strategies that are dependent on the owner's legal structure.
+For LLCs, the results show that single-parcel entities are significantly more exposed to the floodplain. A single-parcel LLC's floodplain exposure is approximately 1.21 times higher than that of an LLC holding multiple parcels.
+Corporations and trusts exhibit the opposite pattern. In both groups, multi-parcel portfolios were significantly more likely to contain flood-exposed properties than their single parcel counterparts. In contrast, no significant difference based on portfolio size was found among government or nonprofit owners.
+These contrasting patterns point to different underlying strategies. The higher risk among single parcel LLCs is consistent with a strategy of liability siloing, where individual high-risk assets are walled off in separate legal entities. Conversely, the higher risk among multi-parcel corporations suggests strategies related to achieving scale advantages and managing risk across a larger, more diversified portfolio.
+Table 8. Tests of equality between single and multiparcel owners 
+Entity type
+Difference Log RR (Single − Multi)
+RR (Single/Multi)
+Wald χ²
+pvalue
+BHFDR pvalue
+LLC
+0.2361
+1.2662
+6.5731
+0.0103
+0.0207
+Corporation
+−0.4350
+0.6473
+3.9762
+0.0461
+0.0615
+Trust
+−0.5411
+0.5821
+7.9267
+0.0048
+0.0195
+Government/Nonprofit
+0.1037
+1.1093
+0.1612
+0.6880
+0.6880
+Note: FDR control per Benjamini & Hochberg (1995). 
+4.5 Unadjusted vs. Adjusted Associations
+Comparing the unadjusted RRs with the fully adjusted estimates allows us to understand the influence of confounding factors like parcel value, size, and neighborhood location. This process of attenuation is clear in the case of single parcel LLCs. Their initial, unadjusted risk ratio is approximately 5.96 times that of single-parcel Individuals. This ratio decreases to approximately 2.11 after controlling for parcel characteristics and settles at its final value of 1.72 once neighborhood fixed effects are included. A similar reduction is seen for multi-parcel corporations, whose unadjusted RR of approximately 3.6 is reduced to 1.62 in the final model.
+Despite these reductions, the relative ranking of owner types remains consistent across all models. This persistence strongly suggests that organizational form and portfolio scale provide explanatory power above and beyond what can be attributed to parcel attributes and location alone.
+4.6 Proximity Robustness Check
+To ensure our findings are not simply an artifact of owner proximity, we conducted a robustness check by adding controls for the distance between an owner and their parcel to our primary model. The results of this test confirm that the ownership patterns we identified are highly stable.
+Including the distance variable had a negligible effect on the estimates. For example, the RR for the key single parcel LLC group shifted only slightly from 1.72 to 1.70, and the relative risk ranking across all owner groups remained unchanged. This stability demonstrates that the associations linked to organizational form and portfolio scale are distinct from the influence of owner-parcel distance. Given this, we retain the more parsimonious model without the distance term as our primary specification.
+Additional robustness checks confirm the stability of our findings. Re-estimating the primary model on the high-confidence classification subset (p-hat max >= 0.80; n = 179,797) yields directionally consistent estimates with key contrasts remaining statistically significant. Results are also stable when switching from the majority-area SFHA definition to a 10 percent overlap rule, and when using owner-clustered or spatial HAC (Conley) standard errors. Detailed robustness estimates are reported in Table S5 of the Supplementary Material.
+4.7 Spatial Structure and Fixed Effects
+Figure 4. Individual Owner Spatial Clustering by Parcel
+
+
+
+Figure 5. LLC Owners Spatial Clustering (LISA) by Parcel
+Figure 6. Corporate Owners Spatial Clustering (LISA) by Parcel 
+Spatial analysis of the data confirms that both flood exposure and ownership types exhibit significant geographic clustering. Moran’s I, a measure of spatial autocorrelation, is 0.783 for parcels within SFHAs, indicating a very strong tendency for them to be located near one another. This clustering pattern also applies to ownership, as holdings by LLCs (I = 0.268) and corporations (I = 0.196) are also geographically concentrated.
+The maps in Figures 4 - 7, generated using Local Indicators of Spatial Association (LISA), pinpoint the locations of these statistical hotspots. These maps reveal numerous clusters where high concentrations of flood-exposed parcels and specific investor types align with the county’s hydro-topography and expected investment patterns.
+
+Figure 7. Government/Nonprofit Owners Spatial Clustering (LISA) by Parcel
+
+Because these strong geographic patterns could confound our analysis, we use neighborhood fixed effects in our primary model. This approach partially absorbs this spatial heterogeneity, ensuring that our estimates of ownership effects are not merely reflecting these pre-existing geographic clusters. 
+
+4.8 Summary
+Our results demonstrate that both who owns a property and what form that ownership takes are systematically associated with the geography of regulatory flood exposure. 
+After adjusting for parcel characteristics and neighborhood context, our models show that single-parcel LLCs are the most likely group to hold parcels in SFHAs. They are followed by multi-parcel Corporations and multi-parcel LLCs, which also exhibit significantly elevated exposure. This effect of scale is also apparent among individual owners, as those with multi-parcel portfolios have a higher risk than their single-parcel counterparts.
+Among LLCs, single-parcel entities show higher flood exposure than multi-parcel ones, whereas among Corporations, multi-parcel portfolios exhibit greater exposure than single parcel holdings. Collectively, these patterns are consistent with the mechanisms of risk–return sorting into discounted hazard locations, liability siloing via single asset LLCs, and principal–agent dynamics common in rental operations.
+5. Discussion
+5.1 Interpreting Ownership Patterns
+Our results indicate that the organizational structures through which owners hold parcels are systematically associated with regulatory flood exposure among SFR holdings. After conditioning on parcel value and size and absorbing microspatial heterogeneity with neighborhood fixed effects, single parcel LLCs have the highest adjusted association with SFHA location, followed by multiparcel corporations and multiparcel LLCs; multiparcel Individuals also exceed the reference group (Table 7). Concentration analysis shows that parcels located within SFHAs are unevenly distributed within ownership forms, with particularly high concentration among corporations and government/nonprofits and meaningful concentration among LLCs (Figure 2). The movement from large raw gaps to attenuated but persistent adjusted associations suggests that parcel characteristics and neighborhood context explain part, but not all, of the observed pattern (Section 4.5). Together these findings point to organizational form and portfolio scale as meaningful correlates of who holds regulatory flood exposure in Douglas County. 
+5.2 Mechanisms 
+Three mechanisms motivated our design and are consistent with the estimates. First, risk–return sorting can arise when hazard is imperfectly capitalized (Gourevitch et al., 2023) and when some owners target discounted assets or submarkets (Bin & Polasky, 2004; Atreya & Ferreira, 2015; Immergluck & Law, 2014a, 2014b; Colburn et al., 2021; Demers & Eisfeldt, 2022). The elevation of multiparcel corporate portfolios is compatible with this logic. Second, the singleparcel premium among LLCs aligns with liability siloing in singleasset entities that isolate risk at the parcel level even when beneficial owners operate larger holdings (Travis, 2019). Third, patterns consistent with principal–agent frictions—where landlords’ mitigation incentives differ from those of owneroccupants—are suggested by higher exposure among nonindividual forms and evidence on maintenance and code compliance in rental units (Ellen et al., 2013; Rose & Harris, 2022; Harrison et al., 2025).
+An obvious alternative explanation is proximity: distant owners might simply be more exposed. A companion analysis documents a steep proximity gradient for SFR exposure in this setting (Andrews et al., 2025). Yet the ownership pattern is stable when we add a distance term; the prespecified primary contrast shifts only slightly, and the ordering of estimates remains intact. This suggests that proximity mediates or moderates, but does not solely account for, the organizational form and scale associations we observe. 
+5.3 Policy & Administrative Implications
+Because SFHA boundaries directly govern permitting and insurance, and because ownership is a strong correlate of who holds exposure, policies can be tuned to where and who simultaneously. Three directions follow:
+5.3.1 Strengthen information flows 
+Nebraska’s seller disclosure explicitly addresses floodplain status (Neb. Rev. Stat. § 762,120; Nebraska Real Estate Commission, 2017), but the Uniform Residential Landlord and Tenant Act does not require floodrisk disclosure in leases (Neb. Rev. Stat. § 761417). Extending disclosure to rental contracts would narrow information gaps for tenants in SFHAs, particularly where landlords operate through shells that obscure scale.
+5.3.2 Portfolioaware Administration 
+Omaha’s rental registry requires owner entity and a local service contact but does not consolidate related shells (Omaha Municipal Code, 2019). Adding structured legalform and standardized ownername fields, plus optional registry linkages where available, would support identification of clusters of highrisk holdings for outreach, code assistance, or mitigation programs. These adjustments are administratively feasible and consistent with how we construct portfolio scale in this study.
+5.3.3. Align licensure and mitigation
+ For SFR rentals inside SFHAs, the city could pilot floodaware rental licensure: proof of active flood insurance where eligible, elevation of mechanicals to required freeboard, and backflow prevention at permitting checkpoints, with compliance prioritized for large or remote portfolios. Any new standards should be paired with equity guardrails—grants or fee relief for small local landlords, and clear tenant protections—to avoid unintended displacement. Omaha’s CRS participation provides a policy lever: calibrated incentives that reduce premiums when parcellevel mitigation is verifiably in place (City of Omaha, 2025; FEMA, 2025). 
+5.4 Limitations 
+This study has a few notable limitations. Regulatory exposure is proxied by SFHAs and does not encompass all pluvial or compound flooding; ownership labels, while accurate at high confidence, can misclassify edge cases; exact match portfolio counts may overstate the number of singleparcel shells where beneficial owners fragment holdings; and the analysis is crosssectional and confined to a single county. These caveats point to a clear future research agenda including multicity replication; registry aided owner linkages to compare shelllevel with consolidated patterns; eventstudy or differenceindifferences designs around policy adoptions to evaluate causal effects on siting, prices, insurance takeup, mitigation, and tenant outcomes; and extensions that incorporate structure age, quality, occupancy, and nonSFHA flood layers. 
+6. Conclusion
+Urban flood governance requires visibility not only into where regulatory hazard is mapped but also into how that hazard is organized across legal shells and portfolios. This study contributes a portable, city-scale pipeline that makes that ownership dimension empirically legible. By classifying owner-of-record entities with a fine-tuned transformer, measuring portfolio scale by exact name, aligning exposure to FEMA SFHAs, and estimating parcel-level associations in a modified Poisson framework with neighborhood fixed effects, we place organizational form and scale in the same empirical frame as parcel characteristics and micro-location.
+Applied to single-family parcels in Douglas County, Nebraska, the analysis shows that ownership is not neutral with respect to mapped exposure. After conditioning on parcel value and size and absorbing neighborhood heterogeneity, single-parcel LLCs exhibit the largest adjusted association with floodplain location, with a risk of exposure approximately 67% higher than that of single parcel individual owners. Elevated exposure is also found for multi-parcel corporations and multi-parcel LLCs, and multi-parcel individuals exceed their single-parcel counterparts. Within-form contrasts sharpen these patterns: among LLCs, single-parcel holdings show greater exposure than multi-parcel holdings, consistent with liability siloing. Conversely, among corporations, multi-parcel portfolios exhibit greater exposure than single-parcel ones, consistent with scale dynamics. These results persist when we add an owner–parcel distance term, suggesting that proximity mediates but does not explain away the ownership signal. Concentration analyses further indicate that a small subset of corporate and governmental owners holds a disproportionate share of flood-exposed parcels, while exposure among Individuals and Trusts is concentrated within a minority of owners once zero holdings are considered.
+Substantively, the findings are compatible with risk–return sorting in settings where hazard is imperfectly capitalized, with principal-agent frictions in rental operations, and with legal structures that compartmentalize liability at the parcel level. Methodologically, the pipeline replaces coarse absentee proxies with an auditable legal-form and portfolio-scale typology that can be assembled from standard assessor fields and reproduced across jurisdictions. The resulting artifacts—standardized owner labels, portfolio counts, and parcel-level SFHA flags—can support portfolio-aware administration, including targeted outreach, code assistance, flood-aware rental licensure, and calibrated incentives within Community Rating System frameworks.
+Taken together, the evidence demonstrates that who owns—and the form in which they own—helps explain who holds mapped flood exposure. By making ownership structure visible at parcel scale and aligning outcomes with regulatory boundaries, the framework offers a reproducible basis for integrating the “who” of ownership into the “where” of hazard—an empirical step toward more precise, equitable, and effective floodplain governance.  7. References  An, B. Y., Jakabovics, A., Orlando, A. W., Rodnyansky, S., & Son, E. (2024). Who owns America? A methodology for identifying landlords’ ownership scale and the implications for targeted code enforcement. Journal of the American Planning Association, 90(4), 627–641. https://doi.org/10.1080/01944363.2023.2292674
+Andrews, J., Lee, J., Mason, J.B., Nam, Y., & Tang, Z. (2025). Associations between Owner Proximity and Parcel-Level Flood Exposure: Evidence from Douglas County, Nebraska. International Journal of Disaster Risk Reduction, (accepted, in press).
+Arimond, A., Molteni, M., Jany, D., Manolova, Z., Borth, D., & Hoepner, A. G. F. (2023). Transformer-based entity legal form classification. arXiv preprint arXiv:2310.12766. https://arxiv.org/abs/2310.12766
+Atreya, A., & Ferreira, S. (2015). Seeing is believing? Evidence from property prices in inundated areas. Risk Analysis, 35(5), 882–899. https://doi.org/10.1111/risa.12307
+Benjamini, Y., & Hochberg, Y. (1995). Controlling the false discovery rate: A practical and powerful approach to multiple testing. Journal of the Royal Statistical Society: Series B (Methodological), 57(1), 289–300.
+Bin, O., & Polasky, S. (2004). Effects of flood hazards on property values: Evidence before and after Hurricane Floyd. Land Economics, 80(4), 490–500. https://doi.org/10.3368/le.80.4.490
+City of Omaha Planning Department. (n.d.). Flood and floodplain information. https://planning.cityofomaha.org/
+Colburn, G., Walter, R. J., & Pfeiffer, D. (2021). Capitalizing on collapse: An analysis of institutional singlefamily rental investors. Urban Affairs Review, 57(6), 1590–1625. https://doi.org/10.1177/1078087420922910
+Cook, T. M., Rongerude, J., Mueller, E., & Kuhlmann, D. (2024). Providing rental housing: A systematic literature review of residential rental property owner decision making. Journal of Planning Literature, 39(4), 427–444. https://doi.org/10.1177/08854122241239571
+Demers, A., & Eisfeldt, A. L. (2022). Total returns to singlefamily rentals. Real Estate Economics, 50(1), 7–32. https://doi.org/10.1111/1540-6229.12353
+D’Lima, W., & Schultz, P. (2021). Residential real estate investments and investor characteristics. Journal of Real Estate Finance and Economics, 63(3), 354–393. https://doi.org/10.1007/s11146-020-09771-8
+Ding, L., Zhang, S., & Diep, M. (2025). Ownership profile of singlefamily residence properties in Philadelphia: A focus on large corporate investors. Philadelphia: Federal Reserve Bank of Philadelphia. https://www.philadelphiafed.org/-/media/FRBP/Assets/Community-Development/Reports/Report-Ownership-Profile-of-Single-Family-Residence-Properties-in-Philadelphia-Feb2025.pdf
+Ellen, I. G., Been, V., Hayashi, A., & Gross, B. (2013). Maintenance and investment in small rental properties: Findings from New York City and Baltimore. NYU Furman Center for Real Estate & Urban Policy.
+Federal Emergency Management Agency (FEMA). (2025, April 1). CRS eligible communities—April 1, 2025, effective date. https://www.fema.gov/floodplain-management/community-rating-system
+Fields, D. (2022). Automated landlord: Digital technologies and postcrisis financial accumulation. Environment and Planning A: Economy and Space, 54(1), 160–181. https://doi.org/10.1177/0308518X19846514
+Goodman, L., Zinn, A., Reynolds, K., & Noble, O. (2023). A profile of institutional investor–owned singlefamily rental properties. Washington, DC: Urban Institute. https://www.urban.org/research/publication/profile-institutional-investor-owned-single-family-rental-properties
+Gourevitch, J. D., Keenan, J. M., Alijani Rad, A., Kahn, M. E., Hino, M., & Wing, O. E. J. (2023). Unpriced climate risk and the potential consequences of overvaluation in U.S. housing markets. Nature Climate Change, 13(2), 143–151. https://doi.org/10.1038/s41558-023-01594-8
+Hangen, F., & O’Brien, D. T. (2024). Linking landlords to uncover ownership obscurity. Housing Studies, 40(4), 940–965. https://doi.org/10.1080/02673037.2024.2325508
+Harrison, A., Immergluck, D., & Walker, J. (2025). Singlefamily rental (SFR) investor types, property conditions, and implications for urban neighbourhoods: Evidence from Memphis, Tennessee. Housing Studies, 40(2), 466–486. https://doi.org/10.1080/02673037.2024.2307589
+Immergluck, D., & Law, J. (2014a). Investing in crisis: The methods, strategies, and expectations of investors in singlefamily foreclosed homes in distressed neighborhoods. Housing Policy Debate, 24(3), 568–593. https://doi.org/10.1080/10511482.2013.850733
+Immergluck, D., & Law, J. (2014b). Speculating in crisis: The intrametropolitan geography of investing in foreclosed homes in Atlanta. Urban Geography, 35(1), 1–24. https://doi.org/10.1080/02723638.2013.858510
+Kruse, F., Awick, J.-P., Marx Gómez, J., & Loos, P. (2021). Developing a legal form classification and extraction approach for company entity matching: Benchmark of rulebased and machine learning approaches. Business Information Systems, 1, 13–26. https://doi.org/10.52825/bis.v1i.44
+Nebraska Department of Natural Resources. (2008). Title 455, Nebraska Administrative Code, Chapter 1: Minimum standards for floodplain management programs. https://dnr.nebraska.gov/sites/default/files/doc/about/rules/Title_455_0708.pdf
+Nebraska Legislature. (n.d.). Neb. Rev. Stat. § 761417 — Disclosure (Uniform Residential Landlord and Tenant Act). https://nebraskalegislature.gov/laws/statutes.php?statute=76-1417
+Nebraska Legislature. (n.d.). Neb. Rev. Stat. § 762,120 — Seller Property Condition Disclosure Statement. https://nebraskalegislature.gov/laws/statutes.php?statute=76-2,120
+Nebraska Real Estate Commission. (2017). Seller Property Condition Disclosure Statement. https://nrec.nebraska.gov/pdf/forms/SPCD.pdf
+Omaha Municipal Code. (2019). Chapter 48 (Housing & Property Maintenance), Article II (Rental Property Registration and Inspection), § 48205(c)(1) – (2) (Adopted by Ord. 41767, Apr. 9, 2019). Municode Library. https://library.municode.com/ne/omaha/codes/code_of_ordinances?nodeId=OMMUCOCHGEORVOII_CH48PRMA
+Omaha Municipal Code. (2025). Chapter 55 (Zoning), Article XI (Overlay Districts), § 55662 (elevation/floodproofing standard) (as amended by Ord. 44191). Municode Library.
+Petrzelka, P., Ma, Z., & Malin, S. (2013). The elephant in the room: Absentee landowner issues in conservation and land management. Land Use Policy, 30(1), 157–166. https://doi.org/10.1016/j.landusepol.2012.03.015
+Robsky Huntley, E., Almeida, L.-B., Heaton, S., & Moon Park, A. (2022). Housing justice beyond the emergency: An analysis of racial inequity in eviction filings across Massachusetts. Homes for All Massachusetts. https://www.homesforallmass.org/covid-evictions-report/hfamass-covid-evictions-report-short-03-22-screen-rfs.pdf
+Rose, G., & Harris, R. (2022). The three tenures: A case of property maintenance. Urban Studies, 59(9), 1926–1943. https://doi.org/10.1177/00420980211029203
+Shelton, T., & Seymour, E. (2024). Horizontal holdings: Untangling the networks of corporate landlords. Annals of the American Association of Geographers, 114(8), 1819–1831. https://doi.org/10.1080/24694452.2023.2278690
+Thomas, T., Ramiller, A., Ren, C., & Toomet, O. (2024). Toward a national eviction data collection strategy using natural language processing. Cityscape, 26(1), 241–263. https://www.huduser.gov/portal/periodicals/cityscape/vol26num1/ch12.pdf
+Torres, R. (2024). Who owns our homes? Methods to group and unmask anonymous corporate owners. Cityscape, 26(1), 339–362. https://www.huduser.gov/portal/periodicals/cityscape/vol26num1/article17.html
+Travis, A. (2019). The organization of neglect: Limited liability companies and housing disinvestment. American Sociological Review, 84(1), 142–170. https://doi.org/10.1177/0003122418821339
+UlrichSchad, J. D., Babin, N., Ma, Z., & Prokopy, L. S. (2016). Out of state, out of mind? Nonoperating farmland owners and conservation decision making. Land Use Policy, 54, 602–613. https://doi.org/10.1016/j.landusepol.2016.02.031
+U.S. Government Accountability Office (GAO). (2024). Rental housing: Information on institutional investment in singlefamily homes (GAO24106643). Washington, DC: GAO. https://www.gao.gov/products/gao-24-106643
+Watson, C. L., & Ziv, O. (2021). Is the rent too high? Land ownership and monopoly power. CESifo Working Paper No. 8864. https://doi.org/10.2139/ssrn.3774672
+Wilson, B., Tate, E., & Emrich, C. T. (2021). Flood recovery outcomes and disaster assistance barriers for vulnerable populations. Frontiers in Water, 3, 752307. https://doi.org/10.3389/frwa.2021.752307
+Zou, G. (2004). A modified Poisson regression approach to prospective studies with binary data. American Journal of Epidemiology, 159(7), 702–706. https://doi.org/10.1093/aje/kwh090
+
+Appendix A. Model Card — OwnershipForm Classifier
+A1. Performance (evaluation set, n = 756)
+Overall: Accuracy = 0.9934; MicroF1 = 0.9934; MacroF1 = 0.9800; WeightedF1 = 0.9934. Perclass (Precision / Recall / F1 / Support): Corporation (1.000 / 0.9286 / 0.9630 / 42); Individual (0.9982 / 0.9982 / 0.9982 / 561); LLC (0.9878 / 1.0000 / 0.9939 / 81); Government/Nonprofit (0.9429 / 1.0000 / 0.9706 / 33); Trust (0.9744 / 0.9744 / 0.9744 / 39). 
+A6. Ablation & Baseline Comparisons
+Tokenremoval ablation 
+From test strings, remove {LLC, LLP, LP, Inc, Corp, Ltd, Trust} (caseinsensitive, punctuationagnostic). 
+Rulebased baseline
+Regex: CITY/COUNTY/STATE OF… → Government/Nonprofit; LLC/LLP/LP; TRUST/Trustee; INC/INCORPORATED/CORP/COMPANY/LTD; else Individual. Precedence: Government/Nonprofit → LLC → Trust → Corporation → Individual. Split hygiene 
+Ablations evaluated on the heldout test set; augmented variants tied to the same base string remain in the same fold. 
+Overall performance
+Model
+Accuracy
+Macro F1
+Micro F1
+Weighted F1
+BERT — Original
+0.993386
+0.979999
+0.993386
+0.993356
+BERT — Ablated
+0.953704
+0.885115
+0.953704
+0.952532
+Rulebased Baseline
+0.841270
+0.509683
+0.841270
+0.806666
+
