@@ -9,8 +9,55 @@ This document describes the data processing and analysis pipeline for the Freeze
 The pipeline consists of 9 stages that transform raw data into publication-ready results:
 
 ```
+[Pre-pipeline: build_parcels, build_treatments]
+    ↓
 00_ingest → 01_link → 02_labels → 03_exposure → 04_salesclean → 05_features → 06_panels → 07_estimation → 08_figures
 ```
+
+All commands are run via `python src/pipeline.py <command>`.
+
+---
+
+## Pre-Pipeline Steps
+
+### Build Parcels (`step_impl/parcels.py`)
+
+**Command**: `python src/pipeline.py build_parcels`
+
+**Purpose**: Build single-family residential (SFR) parcel base layer with geometries.
+
+**Input**:
+- `results/integration_run/parcels_with_classification.csv`
+- `results/integration_run/sfr_regression_data.csv`
+
+**Output**:
+- `data_work/parcels_sfr.gpkg` - GeoPackage with parcel point geometries (EPSG:4326)
+
+**Key Operations**:
+- Filter to SFR parcels (Property_P_x == 1)
+- Extract parcel IDs, coordinates, neighborhood, and log-transformed attributes
+- Create SFHA and inundation indicators from source data
+- Generate point geometries from parcel centroids
+
+---
+
+### Build Treatments (`step_impl/treatments.py`)
+
+**Command**: `python src/pipeline.py build_treatments`
+
+**Purpose**: Assign treatment and exposure indicators to parcels.
+
+**Input**:
+- `results/integration_run/sfr_regression_data.csv`
+
+**Output**:
+- `data_work/parcel_treatments.parquet`
+
+**Key Variables Created**:
+- `sfha_majority` - SFHA status by majority-area rule
+- `sfha_10pct` - SFHA status by 10% overlap rule
+- `inund_201903` - Actual 2019 inundation status
+- `x`, `y` - Parcel coordinates
 
 ---
 
@@ -102,6 +149,26 @@ The pipeline consists of 9 stages that transform raw data into publication-ready
 - `signed_dist_inund_m` - Signed distance to 2019 inundation edge
 - `inside_sfha` - Binary indicator for SFHA location
 
+**CLI Commands for Boundary Processing**:
+
+```bash
+# Option 1: All-in-one (for small datasets)
+python src/pipeline.py boundary_from_gdb
+
+# Option 2: Chunked processing (for large datasets)
+python src/pipeline.py boundary_prepare                      # Prepare geometries
+python src/pipeline.py boundary_chunk --chunk-index 0 --chunk-total 4  # Process chunk 0 of 4
+python src/pipeline.py boundary_chunk --chunk-index 1 --chunk-total 4  # Process chunk 1 of 4
+python src/pipeline.py boundary_chunk --chunk-index 2 --chunk-total 4  # Process chunk 2 of 4
+python src/pipeline.py boundary_chunk --chunk-index 3 --chunk-total 4  # Process chunk 3 of 4
+python src/pipeline.py boundary_merge                        # Combine chunks
+
+# Create RD windows and rings
+python src/pipeline.py rd_windows
+```
+
+**Note**: The boundary scripts reference a hardcoded geodatabase path that must be modified for your environment. See [Configuration & Environment](#configuration--environment) section.
+
 ---
 
 ### Stage 04: Sales Cleaning (`04_salesclean/`)
@@ -126,21 +193,145 @@ The pipeline consists of 9 stages that transform raw data into publication-ready
 
 ### Stage 05: Feature Engineering (`05_features/`)
 
-**Script**: `buyer_proximity.py`
+**Scripts**:
+- `buyer_proximity.py` - Calculate buyer-parcel proximity (main)
+- `process_dem.py` - Extract elevation from DEM tiles
+- `process_building_footprints.py` - Process Microsoft building footprints
+- `extract_assessor.py` - Extract assessor data from GDB
+- `transform_assessor.py` - Transform assessor data
+- `validate_assessor.py` - Validate assessor data
+- `integrate_assessor.py` - Integrate assessor data into pipeline
+
+#### buyer_proximity.py (Main)
+
+**Command**: `python src/pipeline.py buyer_features`
 
 **Purpose**: Calculate buyer-parcel proximity features.
 
 **Input**:
-- Clean sales with buyer addresses
-- ZIP code centroid file
+- `data_work/sales_clean.parquet`
 
 **Output**:
-- Sales with proximity measures
+- `data_work/sales_buyer_features.parquet`
 
 **Key Variables**:
-- `buyer_dist_km` - Great-circle distance from buyer mailing ZIP to parcel
-- `local_owner` - Binary indicator for same-ZIP ownership
-- Distance bands: same ZIP, other Douglas County ZIP, adjoining county, other NE, other state
+- `buyer_local` - Binary indicator for same-ZIP ownership
+- `buyer_zip_band` - Distance band category (same_zip vs other)
+
+---
+
+#### process_dem.py
+
+**Purpose**: Extract elevation values at parcel centroids from USGS DEM tiles.
+
+**Input**:
+- `GIS_Data/Elevation/USGS_3DEP_10m/*.tif` - USGS 3DEP DEM tiles
+- `data_work/parcel_boundary_distances.parquet` - Parcel centroids
+
+**Output**:
+- `data_work/parcel_elevation.parquet`
+
+**Key Variables**:
+- `elevation_m` - Elevation at parcel centroid (meters)
+
+**Usage**: `python src/05_features/process_dem.py`
+
+---
+
+#### process_building_footprints.py
+
+**Purpose**: Calculate building footprint area per parcel from Microsoft footprints.
+
+**Input**:
+- `GIS_Data/Building_Footprints/Nebraska.geojson` - Microsoft building footprints
+- `data_work/parcel_boundary_distances.parquet` - Parcel boundaries
+
+**Output**:
+- `data_work/parcel_building_footprints.parquet`
+
+**Key Variables**:
+- `footprint_sqm` - Total building footprint area in square meters
+
+**Usage**: `python src/05_features/process_building_footprints.py`
+
+---
+
+#### Stage 05b: Assessor Data ETL Pipeline
+
+The assessor scripts extract, transform, validate, and integrate parcel attributes from the Nebraska statewide assessor geodatabase. This pipeline enables covariate balance tests and covariate-adjusted RD estimation.
+
+**Run Order**:
+```bash
+# Run in sequence (each step depends on previous)
+python src/05_features/extract_assessor.py      # ~7 sec
+python src/05_features/transform_assessor.py    # ~5 sec
+python src/05_features/validate_assessor.py     # ~3 sec
+python src/05_features/integrate_assessor.py    # ~10 sec
+```
+
+**Step 1: extract_assessor.py**
+
+Extracts Douglas County (County_ID = '055') parcels from the statewide geodatabase.
+
+| | |
+|---|---|
+| **Input** | `statewide parcel/NE_2023_statewideparcels.gdb` (735 MB) |
+| **Output** | `data_work/assessor_raw.parquet` (51 MB, 212,314 parcels) |
+| **Method** | Uses ogr2ogr for extraction, geopandas for parquet conversion |
+| **CRS** | Reprojects from NAD83/Nebraska ftUS to WGS84 (EPSG:4326) |
+
+**Key Fields Extracted**:
+- `Parcel_ID`, `BuildingYear`, `ImpSF`, `QualImp`, `CondImp` - Building characteristics
+- `Total_Assessed_Value`, `Land_Value`, `Improvements_Value` - Values
+- `GIS_Acres`, `Property_Parcel_Type`, `Zoning`, `Neighborhood` - Parcel info
+- `Current_Owner_Name`, `Ownership_Type` - Owner info
+
+**Step 2: transform_assessor.py**
+
+Cleans and derives analysis-ready features from raw assessor data.
+
+| | |
+|---|---|
+| **Input** | `data_work/assessor_raw.parquet` |
+| **Output** | `data_work/assessor_clean.parquet` (34 MB) |
+
+**Transformations Applied**:
+- Parse `BuildingYear` (string) → `year_built` (int) with multi-format handling
+- Compute `building_age` = 2019 - year_built
+- Create log transforms: `log_assessed_value`, `log_land_value`, `log_acres`, `log_impsf`
+- Map `Property_Parcel_Type` codes to labels (1=SFR, 2=Multi-Family, etc.)
+- Derive `is_sfr` and `is_improved` binary indicators
+
+**Coverage Statistics**:
+- year_built: 88.1% coverage (186,974 / 212,314)
+- Total_Assessed_Value: 100% coverage
+- SFR parcels: 170,143 (80.2%)
+
+**Step 3: validate_assessor.py**
+
+Validates data quality and match rates against existing project parcel data.
+
+| | |
+|---|---|
+| **Input** | `data_work/assessor_clean.parquet`, `data_work/parcel_boundary_distances.parquet` |
+| **Output** | `data_work/diagnostics/assessor_match_report.csv` |
+
+**Validation Checks**:
+- Parcel ID match rate: 100% (212,312 / 212,312 matched)
+- SFR subset coverage verification
+- RD window (±300m) parcel coverage
+
+**Step 4: integrate_assessor.py**
+
+Merges 17 assessor covariates into analysis datasets.
+
+| | |
+|---|---|
+| **Input** | `data_work/assessor_clean.parquet`, `data_work/parcel_boundary_distances.parquet`, `data_work/panel_parcel_month.parquet` |
+| **Output** | `data_work/parcel_covariates_full.parquet` (17 MB), `data_work/panel_parcel_month_enriched.parquet` (5.4 MB) |
+
+**Covariates Integrated** (17 variables):
+`year_built`, `building_age`, `Total_Assessed_Value`, `log_assessed_value`, `Land_Value`, `log_land_value`, `Improvements_Value`, `log_improvement_value`, `GIS_Acres`, `log_acres`, `ImpSF`, `log_impsf`, `is_sfr`, `is_improved`, `neighborhood`, `property_type_label`, `zoning_label`
 
 ---
 
@@ -171,6 +362,9 @@ The pipeline consists of 9 stages that transform raw data into publication-ready
 - `rd_summary.py` - Boundary RD summary statistics
 - `rd_summary_by_group.py` - RD by owner type/distance subgroups
 - `poisson_ring_models.py` - Near-but-dry ring count models
+- `rd_diagnostics.py` - RD identification diagnostics
+- `buyer_composition_did.py` - Buyer composition DiD analysis
+- `covariate_balance.py` - Covariate balance tests at boundary
 
 **Purpose**: Estimate treatment effects at SFHA and inundation boundaries.
 
@@ -194,6 +388,99 @@ The pipeline consists of 9 stages that transform raw data into publication-ready
 - `event_study_summary.parquet` - Event study coefficients
 - `tab_rd_sfha.csv` - SFHA boundary RD results
 - `tab_rd_inund.csv` - Inundation boundary RD results
+
+---
+
+#### Stage 07b: Identification Diagnostics
+
+This subsection documents the comprehensive identification diagnostics that validate the RD design assumptions.
+
+**Run Order**:
+```bash
+# Run diagnostics (after panel construction)
+python src/07_estimation/rd_diagnostics.py
+python src/07_estimation/covariate_balance.py
+python src/07_estimation/buyer_composition_did.py
+```
+
+---
+
+##### rd_diagnostics.py
+
+**Purpose**: Implement comprehensive RD identification diagnostics for manuscript validation.
+
+**Input**:
+- `data_work/panel_parcel_month.parquet`
+- `data_work/parcel_boundary_distances.parquet`
+
+**Output**:
+- `data_work/diagnostics/mccrary_density_test.csv`
+- `data_work/diagnostics/pretrends_ftest.csv`
+- `data_work/diagnostics/bandwidth_sensitivity.csv`
+- `data_work/diagnostics/donut_rd.csv`
+- `figures/fig_mccrary_*.png`, `figures/fig_bandwidth_*.png`
+
+**Diagnostic Tests Implemented**:
+
+| Test | Purpose | Key Result |
+|------|---------|------------|
+| McCrary Density | Tests for manipulation at boundary | SFHA: z=7.78, p<0.001 (significant discontinuity) |
+| Pre-Trends F-Test | Tests parallel trends assumption | SFHA: F=3.33, p<0.001 (violated); Inund: passes |
+| Bandwidth Sensitivity | Robustness across calipers | SFHA DiD stable 150-400m; Inund unstable |
+| Donut RD | Addresses SUTVA/spillover concerns | Tests at 50m-250m exclusion widths |
+
+**Usage**: `python src/07_estimation/rd_diagnostics.py`
+
+**Reference**: McCrary (2008) for density test methodology.
+
+---
+
+##### covariate_balance.py
+
+**Purpose**: Test whether parcels inside vs. outside SFHA boundary are balanced on pre-treatment covariates.
+
+**Input**:
+- `data_work/parcel_covariates_full.parquet` (from Stage 05b)
+
+**Output**:
+- `data_work/diagnostics/covariate_balance.csv` (all parcels)
+- `data_work/diagnostics/covariate_balance_sfr.csv` (SFR improved only)
+- `figures/fig_covariate_balance.png`
+
+**Methodology**:
+For each covariate, estimate: `Y_i = α + β·inside_sfha_i + ε_i`
+
+Tests conducted at three calipers: ±100m, ±200m, ±300m.
+
+**Key Results (SFR Improved, ±300m)**:
+
+| Covariate | Inside | Outside | p-value | Balanced? |
+|-----------|--------|---------|---------|-----------|
+| Year Built | 1963 | 1980 | <0.001 | No |
+| Assessed Value | $180k | $246k | <0.001 | No |
+| Lot Size | 1.02 ac | 0.31 ac | <0.001 | No |
+| Building SF | 1,445 | 1,699 | <0.001 | No |
+
+**Summary**: 0/8 covariates balanced at 200m and 300m calipers for SFR improved parcels.
+
+**Usage**: `python src/07_estimation/covariate_balance.py`
+
+---
+
+##### buyer_composition_did.py
+
+**Purpose**: Analyze whether post-flood purchases shift toward different buyer types (LLCs, portfolio investors).
+
+**Input**: `data_work/panel_parcel_month.parquet`
+
+**Output**:
+- `data_work/diagnostics/buyer_composition_did.csv`
+- `data_work/diagnostics/buyer_composition_summary.csv`
+- `figures/fig_buyer_composition_event_study.png`
+
+**Key Finding**: LLC share DECREASED inside SFHA post-flood (from 45% to 27%), contradicting the "investor acquisition" hypothesis.
+
+**Usage**: `python src/07_estimation/buyer_composition_did.py`
 
 ---
 
@@ -269,3 +556,54 @@ python projects/flood_2019_sales_douglas/run_spatial_pre_post_conley.py
 | Figures | `figures/` and `data_work/fig_*.png` |
 | Results tables | `data_work/tab_*.csv` |
 | Reports | `data_work/report_*.md` |
+| Diagnostic results | `data_work/diagnostics/` |
+
+---
+
+## Configuration & Environment
+
+### Virtual Environment
+
+All pipeline scripts require activation of the project virtual environment before running:
+
+```bash
+source .venv/bin/activate
+```
+
+Scripts check for `VIRTUAL_ENV` ending with `/.venv` and will exit with an error if not activated.
+
+### Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `PANEL_SCOPE` | Panel restriction: `rd_only` restricts to parcels with RD flags | `rd_only` |
+| `VIRTUAL_ENV` | Path to activated virtual environment (set automatically) | Required |
+
+### Hardcoded Paths
+
+The following paths are hardcoded in the source code and must be modified for your environment:
+
+| Script | Path | Description |
+|--------|------|-------------|
+| `03_exposure/boundary_from_gdb.py` | `/Users/jesseandrews/Documents/ArcGIS/Projects/OwnerDistanceProject/OwnerDistanceProject.gdb` | ArcGIS geodatabase with parcel, FIRM, and inundation layers |
+| `03_exposure/boundary_prepare.py` | Same as above | Same GDB path |
+| `05_features/extract_assessor.py` | `statewide parcel/NE_2023_statewideparcels.gdb` | Nebraska statewide parcel geodatabase |
+
+To modify these paths, edit the `GDB_PATH` constant at the top of each script.
+
+### CRS Conventions
+
+| Data Type | CRS | EPSG Code |
+|-----------|-----|-----------|
+| Parcel geometries (output) | WGS84 | EPSG:4326 |
+| Boundary distance calculations | UTM Zone 15N | EPSG:32615 |
+| DEM tiles | NAD83 | Varies by tile |
+
+### Event Window
+
+The analysis uses a fixed event window centered on the March 2019 Missouri River flood:
+
+- **Event month**: March 2019 (event_m = 0)
+- **Event window**: March 2017 to March 2021 (±24 months)
+- **Pre-period**: event_m ∈ [-24, -1]
+- **Post-period**: event_m ∈ [0, +24]

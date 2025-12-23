@@ -20,6 +20,35 @@ Floods make risk salient, but housing markets can adjust through thin liquidity 
 - Microcell Poisson models show post-event increases in sales just outside the line (rate ratios ≈ **1.44** in 0-250m)
 - Price-level contrasts are negative but imprecise (log-price DiD ≈ -0.26 to -0.35)
 - The share of boundary-window sales occurring inside the SFHA falls by **~1.1 percentage points** after flood
+- Raw SFHA price discount of **-40%** shrinks to **-15%** after controlling for housing characteristics (covariate-adjusted RD)
+
+---
+
+## Prerequisites
+
+### System Requirements
+
+- Python 3.8 or higher
+- ~10GB disk space for data files
+- ArcGIS geodatabase access (optional, for boundary processing from scratch)
+
+### Required Data Files
+
+The pipeline expects the following data sources:
+
+| Data | Path | Description |
+|------|------|-------------|
+| Classification output | `results/integration_run/parcels_with_classification.csv` | Owner classification results |
+| Regression data | `results/integration_run/sfr_regression_data.csv` | SFR parcel regression dataset |
+| FEMA NFHL | ArcGIS geodatabase | Special Flood Hazard Area boundaries |
+| 2019 Inundation | ArcGIS geodatabase | Sentinel-2 derived flood extent |
+| NE Statewide Assessor | `statewide parcel/NE_2023_statewideparcels.gdb` | Nebraska assessor parcel data (735 MB) |
+| DEM tiles (optional) | `GIS_Data/Elevation/USGS_3DEP_10m/*.tif` | USGS 3DEP 10m elevation |
+| Building footprints (optional) | `GIS_Data/Building_Footprints/Nebraska.geojson` | Microsoft building footprints |
+
+### Path Configuration
+
+Some scripts contain hardcoded paths that must be modified for your environment. See [doc/PIPELINE.md#configuration--environment](doc/PIPELINE.md#configuration--environment) for details.
 
 ---
 
@@ -43,12 +72,44 @@ pip install -r requirements.txt
 ### Running the Pipeline
 
 ```bash
-# Run the full analysis pipeline
-python src/pipeline.py
+# IMPORTANT: Always activate the virtual environment first
+source .venv/bin/activate
 
-# Or run specific stages
+# Run specific pipeline stages
 python src/pipeline.py build_parcels
 python src/pipeline.py build_treatments
+python src/pipeline.py build_panels
+python src/pipeline.py event_study
+
+# Stage 05b: Assessor data ETL (run in order)
+python src/05_features/extract_assessor.py
+python src/05_features/transform_assessor.py
+python src/05_features/validate_assessor.py
+python src/05_features/integrate_assessor.py
+
+# Stage 07b: Identification diagnostics
+python src/07_estimation/rd_diagnostics.py
+python src/07_estimation/covariate_balance.py
+python src/07_estimation/buyer_composition_did.py
+```
+
+### Chunked Boundary Processing
+
+For large datasets, use chunked parallel processing:
+
+```bash
+# Prepare boundary geometries
+python src/pipeline.py boundary_prepare
+
+# Process in parallel chunks (run simultaneously)
+python src/pipeline.py boundary_chunk --chunk-index 0 --chunk-total 4 &
+python src/pipeline.py boundary_chunk --chunk-index 1 --chunk-total 4 &
+python src/pipeline.py boundary_chunk --chunk-index 2 --chunk-total 4 &
+python src/pipeline.py boundary_chunk --chunk-index 3 --chunk-total 4 &
+wait
+
+# Merge results
+python src/pipeline.py boundary_merge
 ```
 
 For detailed pipeline documentation, see [doc/PIPELINE.md](doc/PIPELINE.md).
@@ -66,7 +127,8 @@ Freeze and Flight/
 ├── doc/                         # Documentation
 │   ├── PIPELINE.md             # Pipeline stage documentation
 │   ├── METHODOLOGY.md          # Statistical methods
-│   └── DATA_DICTIONARY.md      # Variable definitions
+│   ├── DATA_DICTIONARY.md      # Variable definitions
+│   └── CRITIQUE_FINDINGS.md    # RD diagnostic results and interpretation
 │
 ├── manuscript/                  # Article materials
 │   ├── drafts/                 # Main manuscript versions
@@ -74,15 +136,16 @@ Freeze and Flight/
 │   ├── supplementary/          # Supplementary materials
 │   └── correspondence/         # Reviewer correspondence
 │
-├── src/                         # Pipeline code (00_ingest - 08_figures)
+├── src/                         # Pipeline code
+│   ├── step_impl/              # Pre-pipeline: parcels.py, treatments.py
 │   ├── 00_ingest/              # Sales data ingestion
 │   ├── 01_link/                # Link sales to parcels
 │   ├── 02_labels/              # Label parties (owner types)
 │   ├── 03_exposure/            # SFHA/inundation boundary exposure
 │   ├── 04_salesclean/          # Clean sales data
-│   ├── 05_features/            # Buyer proximity features
+│   ├── 05_features/            # Buyer proximity, DEM, footprints, assessor
 │   ├── 06_panels/              # Build parcel-month panels
-│   ├── 07_estimation/          # Event study, Poisson models, RD summary
+│   ├── 07_estimation/          # Event study, Poisson, RD, diagnostics
 │   ├── 08_figures/             # Figure generation
 │   └── pipeline.py             # Main pipeline orchestration
 │
@@ -92,6 +155,7 @@ Freeze and Flight/
 ├── scripts/                     # Spatial modeling scripts
 ├── legacy/                      # Legacy analysis scripts
 ├── data_work/                   # Processed data (parquet, gpkg, figures)
+│   └── diagnostics/            # RD diagnostic outputs
 ├── figures/                     # Publication-quality figures
 ├── GIS_Data/                    # GIS source data
 ├── related_manuscripts/         # Related Douglas County papers

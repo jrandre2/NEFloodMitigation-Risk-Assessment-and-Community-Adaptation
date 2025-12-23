@@ -208,3 +208,122 @@ No spillovers across boundary. Potential violation if:
 The SFHA boundary affects outcomes only through flood risk salience, not through other channels. Note that:
 - Insurance requirements apply inside SFHA (potential confound)
 - Disclosure requirements may vary
+
+---
+
+## Identification Diagnostics
+
+This section describes the formal diagnostic tests used to validate the RD design. See `doc/CRITIQUE_FINDINGS.md` for detailed results and interpretation.
+
+### McCrary Density Test
+
+Tests for manipulation at the boundary by detecting discontinuities in the density of the running variable (signed distance to boundary).
+
+**Procedure**:
+1. Create histogram bins of parcels by signed distance
+2. Fit local linear regressions on each side of the cutoff
+3. Test for discontinuity in log-density at the boundary
+
+**Interpretation**: Significant discontinuity (p < 0.05) suggests possible sorting or manipulation. For the SFHA boundary, this is expected due to topographic constraints on development.
+
+### Formal Pre-Trends Test
+
+Joint F-test on pre-event coefficients to validate the parallel trends assumption.
+
+**Procedure**:
+1. Estimate full event study specification
+2. Extract all pre-event interaction coefficients (β_τ for τ < -1)
+3. Conduct Wald test: H0: β_{-24} = β_{-23} = ... = β_{-2} = 0
+
+**Interpretation**: Rejection (p < 0.05) suggests pre-existing differential trends that could confound the treatment effect.
+
+### Bandwidth Sensitivity
+
+Tests robustness of the main DiD estimate to caliper width choice.
+
+**Procedure**:
+1. Estimate DiD at multiple bandwidths: 100m, 150m, 200m, 250m, 300m, 400m, 500m
+2. Plot point estimates with 95% confidence intervals
+3. Assess stability across bandwidth choices
+
+**Interpretation**: Stable estimates across bandwidths support robustness. Large variation suggests sensitivity to local sample composition.
+
+### Donut RD
+
+Addresses SUTVA concerns by excluding observations within a "donut" around the boundary.
+
+**Procedure**:
+1. Estimate standard DiD within ±300m caliper
+2. Re-estimate excluding parcels 0-100m outside the boundary (spillover zone)
+3. Compare estimates
+
+**Interpretation**: If donut estimate is larger in magnitude, the standard estimate may be attenuated by spillover effects to "control" parcels.
+
+### Covariate Balance Tests
+
+Tests whether parcels inside vs. outside the boundary are balanced on pre-treatment characteristics.
+
+**Estimating Equation**:
+
+```
+X_i = α + β·Inside_sfha_i + ε_i
+```
+
+Where X is each covariate (year built, assessed value, lot size, building SF).
+
+**Covariates Tested**:
+- `year_built` - Year structure was built
+- `building_age` - Age of structure as of 2019
+- `Total_Assessed_Value` - County assessed value
+- `log_assessed_value` - Log of assessed value
+- `GIS_Acres` - Parcel size in acres
+- `log_acres` - Log of parcel size
+- `ImpSF` - Building square footage
+- `log_impsf` - Log of building SF
+
+**Sample**: Restricted to SFR improved parcels to match main analysis.
+
+**Calipers**: Tests conducted at ±100m, ±200m, ±300m.
+
+**Interpretation**: Rejection (p < 0.05) indicates systematic differences between inside and outside parcels. Some imbalance is expected at topographic boundaries; the key question is whether including covariates changes the main estimates.
+
+### Covariate-Adjusted RD
+
+To assess sensitivity to observable confounders, we augment the main specification with property covariates.
+
+**Estimating Equation**:
+
+```
+Y_it = β₁·Inside_i + β₂·dist_i + β₃·dist_i×Inside_i + γ'X_i + α_i + δ_t + ε_it
+```
+
+**Covariates (X)**:
+- `building_age` - Structure age
+- `log_assessed_value` - Log assessed value
+- `log_acres` - Log lot size
+- `log_impsf` - Log building SF
+
+**Interpretation**: If β₁ changes substantially with covariate adjustment, observable differences are driving the results. If β₁ remains stable, the estimate is robust to selection on observables.
+
+**Key Finding**: The raw -40% SFHA price penalty shrinks to -15% after covariate adjustment. This indicates that ~60% of the raw discount reflects compositional differences (older, smaller homes inside SFHA), while the residual -15% represents flood risk capitalization.
+
+---
+
+## Microcell Construction
+
+For Poisson ring models, parcels are aggregated into microcells to create a count-based outcome.
+
+**Definition**: Microcells are defined using assessor appraisal neighborhoods. Each neighborhood-month becomes one observation.
+
+**Variables**:
+- `cell_id`: Neighborhood identifier
+- `monthly_sales`: Count of sales in cell-month
+- Ring indicators derived from modal parcel distance within the cell
+
+---
+
+## References
+
+McCrary, J. (2008). Manipulation of the running variable in the regression discontinuity design: A density test. *Journal of Econometrics*, 142(2), 698-714.
+
+Conley, T. G. (1999). GMM estimation with cross sectional dependence. *Journal of Econometrics*, 92(1), 1-45.

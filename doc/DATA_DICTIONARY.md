@@ -59,19 +59,23 @@ This document defines the key variables used in the Freeze and Flight analysis.
 
 | Variable | Type | Description |
 |----------|------|-------------|
-| `in_sfha_window_150m` | boolean | Parcel within ±150m of SFHA boundary |
-| `in_sfha_window_300m` | boolean | Parcel within ±300m of SFHA boundary |
-| `in_inund_window_150m` | boolean | Parcel within ±150m of inundation boundary |
-| `in_inund_window_300m` | boolean | Parcel within ±300m of inundation boundary |
+| `rd_sfha_150` | boolean | Parcel within ±150m of SFHA boundary |
+| `rd_sfha_300` | boolean | Parcel within ±300m of SFHA boundary |
+| `rd_inund_150` | boolean | Parcel within ±150m of inundation boundary |
+| `rd_inund_300` | boolean | Parcel within ±300m of inundation boundary |
 
 ### Ring Variables (for Poisson models)
 
 | Variable | Type | Description |
 |----------|------|-------------|
-| `ring_sfha_0_250m` | boolean | Parcel 0-250m outside SFHA (near-but-dry) |
-| `ring_sfha_250_300m` | boolean | Parcel 250-300m outside SFHA |
-| `ring_inund_0_250m` | boolean | Parcel 0-250m outside 2019 inundation |
-| `ring_inund_250_300m` | boolean | Parcel 250-300m outside 2019 inundation |
+| `sfha_ring` | string | Distance ring category for parcels outside SFHA: `0_250m`, `250_500m`, `500_1000m`, `gt_1000m` |
+| `inund_ring` | string | Distance ring category for parcels outside 2019 inundation: `0_250m`, `250_500m`, `500_1000m`, `gt_1000m` |
+
+**Ring Categories**:
+- `0_250m` - Near-but-dry: 0-250m outside boundary
+- `250_500m` - 250-500m outside boundary
+- `500_1000m` - 500-1000m outside boundary
+- `gt_1000m` - Greater than 1000m outside boundary
 
 ---
 
@@ -159,16 +163,19 @@ This document defines the key variables used in the Freeze and Flight analysis.
 
 | Variable | Type | Description |
 |----------|------|-------------|
-| `year_month` | string | Year-month (YYYY-MM format) |
-| `event_time` | integer | Months relative to March 2019 (event_time=0). Range: [-24, +24] |
-| `post` | boolean | Post-flood period indicator (event_time ≥ 0) |
+| `ym` | string | Year-month in YYYY-MM format (e.g., "2019-03") |
+| `year_month` | string | Alias for `ym` (YYYY-MM format) |
+| `event_m` | integer | Months relative to March 2019 flood. Range: [-24, +24]. event_m=0 is March 2019. |
+| `event_time` | integer | Alias for `event_m` |
+| `post` | boolean | Post-flood period indicator (event_m ≥ 0) |
 
 ### Outcome Variables (Parcel-Month Panel)
 
 | Variable | Type | Description |
 |----------|------|-------------|
-| `sale_occurred` | boolean | Sale recorded in this parcel-month |
-| `sale_count` | integer | Number of sales in parcel-month (usually 0 or 1) |
+| `sold_this_month` | boolean | Sale recorded in this parcel-month (primary outcome) |
+| `sale_occurred` | boolean | Alias for `sold_this_month` |
+| `log_price` | float | Natural log of sale price (if sale occurred, otherwise NaN) |
 
 ### Outcome Variables (Microcell Panel)
 
@@ -228,11 +235,147 @@ This document defines the key variables used in the Freeze and Flight analysis.
 
 ---
 
+## Elevation Variables
+
+| Variable | Type | Unit | Description |
+|----------|------|------|-------------|
+| `elevation_m` | float | meters | Ground elevation at parcel centroid (from USGS 3DEP DEM) |
+
+## Building Footprint Variables
+
+| Variable | Type | Unit | Description |
+|----------|------|------|-------------|
+| `footprint_sqm` | float | m² | Total building footprint area on parcel (from Microsoft Building Footprints) |
+
+---
+
+## Assessor Covariate Variables
+
+Variables derived from the Nebraska statewide assessor geodatabase (Stage 05b).
+
+### Building Characteristics
+
+| Variable | Type | Unit | Description |
+|----------|------|------|-------------|
+| `year_built` | int | year | Year structure was built (parsed from BuildingYear string) |
+| `building_age` | int | years | Age of structure as of 2019 (2019 - year_built) |
+| `ImpSF` | float | sq ft | Building square footage (improvements) |
+| `log_impsf` | float | log(sq ft) | log1p(ImpSF) |
+| `QualImp` | string | - | Improvement quality grade |
+| `CondImp` | string | - | Improvement condition grade |
+
+### Assessed Values
+
+| Variable | Type | Unit | Description |
+|----------|------|------|-------------|
+| `Total_Assessed_Value` | float | USD | County assessed total value |
+| `log_assessed_value` | float | log(USD) | log1p(Total_Assessed_Value) |
+| `Land_Value` | float | USD | Assessed land value only |
+| `log_land_value` | float | log(USD) | log1p(Land_Value) |
+| `Improvements_Value` | float | USD | Assessed improvements value |
+| `log_improvement_value` | float | log(USD) | log1p(Improvements_Value) |
+
+### Parcel Characteristics
+
+| Variable | Type | Unit | Description |
+|----------|------|------|-------------|
+| `GIS_Acres` | float | acres | Parcel size from GIS calculation |
+| `log_acres` | float | log(acres) | log1p(GIS_Acres) |
+| `Property_Parcel_Type` | int | code | Property type code (1=SFR, 2=Multi-Family, etc.) |
+| `property_type_label` | string | - | Human-readable property type |
+| `Zoning` | string | code | Zoning classification code |
+| `zoning_label` | string | - | Human-readable zoning label |
+| `neighborhood` | string | code | Assessor neighborhood code |
+
+### Derived Indicators
+
+| Variable | Type | Description |
+|----------|------|-------------|
+| `is_sfr` | int (0/1) | Single-family residential (Property_Parcel_Type = 1) |
+| `is_improved` | int (0/1) | Parcel has improvements (Improvements_Value > 0 or ImpSF > 0) |
+
+**Property Type Codes**:
+| Code | Label |
+|------|-------|
+| 1 | Single Family Residential |
+| 2 | Multi-Family Residential |
+| 3 | Commercial |
+| 4 | Industrial |
+| 5 | Agricultural |
+| 6 | Vacant |
+| 7 | Exempt |
+| 8 | Other |
+
+**Data Coverage** (Douglas County):
+- Total parcels: 212,314
+- year_built coverage: 88.1%
+- Assessed value coverage: 100%
+- SFR parcels: 170,143 (80.2%)
+
+---
+
+## Diagnostic Output Variables
+
+Variables from identification diagnostic tests (Stage 07b).
+
+### McCrary Density Test (`mccrary_density_test.csv`)
+
+| Variable | Type | Description |
+|----------|------|-------------|
+| `boundary` | string | Boundary tested (sfha or inund) |
+| `discontinuity` | float | Log-density discontinuity at boundary |
+| `z_stat` | float | Z-statistic for discontinuity |
+| `pval` | float | P-value (H0: no discontinuity) |
+| `bandwidth` | float | Bandwidth used for local linear regression |
+
+### Pre-Trends F-Test (`pretrends_ftest.csv`)
+
+| Variable | Type | Description |
+|----------|------|-------------|
+| `boundary` | string | Boundary tested |
+| `caliper` | int | RD window width in meters |
+| `f_stat` | float | F-statistic for joint test of pre-event coefficients |
+| `pval` | float | P-value (H0: all pre-event β = 0) |
+| `n_pre_coefs` | int | Number of pre-event coefficients tested |
+
+### Covariate Balance (`covariate_balance.csv`, `covariate_balance_sfr.csv`)
+
+| Variable | Type | Description |
+|----------|------|-------------|
+| `caliper` | int | RD window width in meters |
+| `covariate` | string | Covariate name (e.g., year_built) |
+| `label` | string | Human-readable covariate label |
+| `coef` | float | Difference: inside_mean - outside_mean |
+| `se` | float | Standard error of difference |
+| `tstat` | float | T-statistic |
+| `pval` | float | P-value (H0: no difference) |
+| `n_inside` | int | Sample size inside boundary |
+| `n_outside` | int | Sample size outside boundary |
+| `inside_mean` | float | Mean covariate value inside |
+| `outside_mean` | float | Mean covariate value outside |
+| `diff_pct` | float | Percent difference: 100 × coef / outside_mean |
+| `balanced` | bool | True if pval > 0.05 |
+
+### Buyer Composition DiD (`buyer_composition_did.csv`)
+
+| Variable | Type | Description |
+|----------|------|-------------|
+| `outcome` | string | Buyer type outcome (LLC_share, Portfolio_share) |
+| `inside_pre` | float | Mean outcome inside, pre-flood |
+| `inside_post` | float | Mean outcome inside, post-flood |
+| `outside_pre` | float | Mean outcome outside, pre-flood |
+| `outside_post` | float | Mean outcome outside, post-flood |
+| `did_estimate` | float | DiD estimate: (inside_post - inside_pre) - (outside_post - outside_pre) |
+| `pval` | float | P-value for DiD estimate |
+
+---
+
 ## Coordinate Reference Systems
 
 | Data | CRS | EPSG |
 |------|-----|------|
-| Parcel centroids (projected) | NAD83 / Nebraska State Plane | EPSG:32104 |
-| Parcel centroids (geographic) | WGS84 | EPSG:4326 |
+| Parcel centroids (output) | WGS84 | EPSG:4326 |
+| Boundary distance calculations | UTM Zone 15N | EPSG:32615 |
 | SFHA boundaries | NAD83 | EPSG:4269 |
 | Sentinel-2 imagery | WGS84 / UTM Zone 14N | EPSG:32614 |
+| DEM tiles | NAD83 (varies) | Varies by tile |
