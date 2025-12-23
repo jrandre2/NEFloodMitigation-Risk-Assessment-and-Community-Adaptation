@@ -91,6 +91,17 @@ python src/05_features/integrate_assessor.py
 python src/07_estimation/rd_diagnostics.py
 python src/07_estimation/covariate_balance.py
 python src/07_estimation/buyer_composition_did.py
+
+# Stage 07c: Robustness and extension modules (run all at once)
+python src/pipeline.py run_all_diagnostics -b inund -c 300
+
+# Or run individual robustness modules:
+python src/pipeline.py spatial_econometrics -b inund -c 300
+python src/pipeline.py placebo_tests -b inund -c 300 -n 500
+python src/pipeline.py selection_correction -b inund -c 300
+python src/pipeline.py quantile_effects -b inund -c 300
+python src/pipeline.py extended_horizon -b inund -c 300
+python src/pipeline.py mechanism_analysis -b inund -c 300
 ```
 
 ### Chunked Boundary Processing
@@ -145,7 +156,14 @@ Freeze and Flight/
 │   ├── 04_salesclean/          # Clean sales data
 │   ├── 05_features/            # Buyer proximity, DEM, footprints, assessor
 │   ├── 06_panels/              # Build parcel-month panels
-│   ├── 07_estimation/          # Event study, Poisson, RD, diagnostics
+│   ├── 07_estimation/          # Event study, Poisson, RD, diagnostics, robustness
+│   │   ├── spatial_econometrics.py   # Conley SEs, SAR, SEM
+│   │   ├── placebo_tests.py          # Falsification tests
+│   │   ├── selection_correction.py   # Heckman, IPW, Lee bounds
+│   │   ├── quantile_effects.py       # Quantile DiD
+│   │   ├── extended_horizon.py       # Extended time horizon
+│   │   ├── mechanism_analysis.py     # Mechanism investigation
+│   │   └── run_all_diagnostics.py    # Run all diagnostics
 │   ├── 08_figures/             # Figure generation
 │   └── pipeline.py             # Main pipeline orchestration
 │

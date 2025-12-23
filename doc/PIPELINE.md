@@ -365,6 +365,13 @@ Merges 17 assessor covariates into analysis datasets.
 - `rd_diagnostics.py` - RD identification diagnostics
 - `buyer_composition_did.py` - Buyer composition DiD analysis
 - `covariate_balance.py` - Covariate balance tests at boundary
+- `spatial_econometrics.py` - Spatial lag/error models, Conley SEs
+- `placebo_tests.py` - Falsification and placebo tests
+- `selection_correction.py` - Heckman, IPW, Lee bounds
+- `quantile_effects.py` - Quantile treatment effects
+- `extended_horizon.py` - Extended time horizon analysis
+- `mechanism_analysis.py` - Mechanism investigation
+- `run_all_diagnostics.py` - Orchestrate all diagnostics
 
 **Purpose**: Estimate treatment effects at SFHA and inundation boundaries.
 
@@ -481,6 +488,218 @@ Tests conducted at three calipers: ±100m, ±200m, ±300m.
 **Key Finding**: LLC share DECREASED inside SFHA post-flood (from 45% to 27%), contradicting the "investor acquisition" hypothesis.
 
 **Usage**: `python src/07_estimation/buyer_composition_did.py`
+
+---
+
+#### Stage 07c: Robustness and Extension Modules
+
+These modules implement comprehensive robustness checks and methodological extensions for peer-review validation.
+
+**Run All Diagnostics (Recommended)**:
+```bash
+python src/pipeline.py run_all_diagnostics --boundary inund --caliper 300
+```
+
+Or run individual modules:
+
+```bash
+# Spatial econometrics (Conley SEs, SAR, SEM)
+python src/pipeline.py spatial_econometrics -b inund -c 300
+
+# Placebo and falsification tests
+python src/pipeline.py placebo_tests -b inund -c 300 -n 500
+
+# Selection correction (Heckman, IPW, Lee bounds)
+python src/pipeline.py selection_correction -b inund -c 300
+
+# Quantile treatment effects
+python src/pipeline.py quantile_effects -b inund -c 300
+
+# Extended horizon persistence analysis
+python src/pipeline.py extended_horizon -b inund -c 300
+
+# Mechanism analysis
+python src/pipeline.py mechanism_analysis -b inund -c 300
+```
+
+---
+
+##### spatial_econometrics.py
+
+**Purpose**: Address spatial autocorrelation with full spatial econometrics suite.
+
+**Input**:
+- `data_work/panel_parcel_month.parquet`
+
+**Output**:
+- `data_work/diagnostics/conley_se_comparison.csv`
+- `data_work/diagnostics/spatial_lag_results.csv`
+- `data_work/diagnostics/spatial_error_results.csv`
+- `data_work/diagnostics/moran_residual_test.csv`
+
+**Methods Implemented**:
+
+| Method | Description |
+|--------|-------------|
+| Conley SEs | Spatial HAC standard errors (configurable cutoff, default 5km) |
+| Spatial Lag (SAR) | y = ρWy + Xβ + ε |
+| Spatial Error (SEM) | y = Xβ + u, where u = λWu + ε |
+| Moran's I | Residual spatial autocorrelation test |
+
+**Dependencies**: `libpysal`, `spreg`, `esda`
+
+**Usage**: `python src/pipeline.py spatial_econometrics -b inund -c 300`
+
+---
+
+##### placebo_tests.py
+
+**Purpose**: Falsification tests to validate causal identification.
+
+**Input**:
+- `data_work/panel_parcel_month.parquet`
+
+**Output**:
+- `data_work/diagnostics/placebo_event_dates.csv`
+- `data_work/diagnostics/placebo_boundaries.csv`
+- `data_work/diagnostics/permutation_pvalues.csv`
+- `data_work/diagnostics/leave_one_out.csv`
+- `data_work/diagnostics/triple_difference.csv`
+- `figures/fig_placebo_*.png`
+- `figures/fig_permutation_distribution.png`
+
+**Tests Implemented**:
+
+| Test | Description |
+|------|-------------|
+| Placebo Event Dates | Test DiD at fake dates (2017-03, 2018-03, 2020-03, 2021-03) |
+| Placebo Boundaries | Shift boundary by ±50m, ±100m |
+| Permutation Inference | Randomization inference (default 500 permutations) |
+| Leave-One-Out | Drop each month and re-estimate |
+| Triple Difference | Use SFHA as additional control for inundation |
+
+**Usage**: `python src/pipeline.py placebo_tests -b inund -c 300 -n 500`
+
+---
+
+##### selection_correction.py
+
+**Purpose**: Address selection bias in price models (only observe sold properties).
+
+**Input**:
+- `data_work/panel_parcel_month.parquet`
+
+**Output**:
+- `data_work/diagnostics/heckman_results.csv`
+- `data_work/diagnostics/ipw_results.csv`
+- `data_work/diagnostics/lee_bounds.csv`
+- `data_work/diagnostics/selection_comparison.csv`
+- `figures/fig_selection_correction_comparison.png`
+
+**Methods Implemented**:
+
+| Method | Description |
+|--------|-------------|
+| Heckman Two-Step | Selection model with inverse Mills ratio |
+| IPW | Inverse probability weighting |
+| Lee Bounds | Lee (2009) trimming bounds under selection |
+
+**Usage**: `python src/pipeline.py selection_correction -b inund -c 300`
+
+---
+
+##### quantile_effects.py
+
+**Purpose**: Estimate distributional effects across the price distribution.
+
+**Input**:
+- `data_work/panel_parcel_month.parquet`
+
+**Output**:
+- `data_work/diagnostics/quantile_did.csv`
+- `data_work/diagnostics/distribution_shift_test.csv`
+- `figures/fig_quantile_effects.png`
+
+**Methods Implemented**:
+
+| Method | Description |
+|--------|-------------|
+| Quantile DiD | DiD at τ = {0.1, 0.25, 0.5, 0.75, 0.9} |
+| K-S Test | Kolmogorov-Smirnov distribution shift test |
+
+**Usage**: `python src/pipeline.py quantile_effects -b inund -c 300`
+
+---
+
+##### extended_horizon.py
+
+**Purpose**: Extend analysis beyond ±24 months for persistence testing.
+
+**Input**:
+- `data_work/panel_parcel_month.parquet`
+
+**Output**:
+- `data_work/diagnostics/dynamic_effects_extended.csv`
+- `data_work/diagnostics/persistence_analysis.csv`
+- `figures/fig_extended_event_study.png`
+
+**Analysis**:
+- Extended event study (±36 months)
+- Persistence analysis across time windows (0-6m, 6-12m, 12-18m, 18-24m, 24-36m)
+
+**Usage**: `python src/pipeline.py extended_horizon -b inund -c 300`
+
+---
+
+##### mechanism_analysis.py
+
+**Purpose**: Investigate channels through which flood affects housing market.
+
+**Input**:
+- `data_work/panel_parcel_month.parquet`
+- `data_work/parcel_covariates_full.parquet`
+
+**Output**:
+- `data_work/diagnostics/mechanism_insurance.csv`
+- `data_work/diagnostics/mechanism_credit.csv`
+- `data_work/diagnostics/heterogeneity_by_chars.csv`
+- `data_work/diagnostics/mechanism_buyer_composition.csv`
+- `data_work/diagnostics/mechanism_summary.csv`
+- `figures/fig_mechanism_heterogeneity.png`
+
+**Mechanisms Tested**:
+
+| Channel | Test |
+|---------|------|
+| Insurance | Compare SFHA (mandatory) vs inundation (optional insurance) |
+| Credit Constraints | Heterogeneity by property value terciles |
+| Property Characteristics | Effects by building age, assessed value, lot size |
+| Buyer Composition | LLC share, portfolio buyer share changes |
+
+**Usage**: `python src/pipeline.py mechanism_analysis -b inund -c 300`
+
+---
+
+##### run_all_diagnostics.py
+
+**Purpose**: Single entry point to run complete diagnostics suite.
+
+**Output**:
+- `data_work/diagnostics/comprehensive_diagnostics_report.md`
+- `data_work/diagnostics/diagnostics_summary.json`
+- All outputs from individual modules above
+
+**Modules Orchestrated** (8 total):
+1. RD Diagnostics (McCrary, pre-trends, bandwidth)
+2. Event Study
+3. Placebo Tests
+4. Spatial Econometrics
+5. Selection Correction
+6. Quantile Effects
+7. Extended Horizon
+8. Mechanism Analysis
+
+**Usage**: `python src/pipeline.py run_all_diagnostics -b inund -c 300 [--skip-permutation]`
 
 ---
 

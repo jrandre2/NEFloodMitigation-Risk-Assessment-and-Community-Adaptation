@@ -8,6 +8,12 @@ torch
 transformers
 scikit-learn
 pyyaml
-libpysal
-esda
 statsmodels>=0.13.0
+scipy>=1.7.0
+tqdm>=4.60.0
+
+# Spatial econometrics
+libpysal>=4.8.0
+esda>=2.4.0
+spreg>=1.3.0
+mgwr>=2.2.0

@@ -9,6 +9,10 @@ This module implements formal tests to validate the boundary RD design:
 3. Bandwidth sensitivity - estimate effects across multiple calipers
 4. Donut RD - exclude observations within donut of boundary
 
+IMPORTANT: The inundation boundary is the PRIMARY specification because
+it passes pre-trends tests (F=1.50, p=0.34). The SFHA boundary fails
+pre-trends (F=3.33, p<0.001) and should be used for robustness only.
+
 Input Files
 -----------
 - data_work/panel_parcel_month.parquet
@@ -23,6 +27,11 @@ Output Files
 - figures/fig_mccrary_density.png
 - figures/fig_bandwidth_sensitivity.png
 - figures/fig_event_study_with_ci.png
+
+See Also
+--------
+- spatial_econometrics.py : For Conley spatial standard errors
+- placebo_tests.py : For falsification tests
 
 References
 ----------

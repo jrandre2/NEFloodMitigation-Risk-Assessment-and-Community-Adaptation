@@ -7,6 +7,10 @@ This module estimates difference-in-differences effects at SFHA and
 inundation boundaries for both sale rates and log prices, using linear
 probability models with HC3 robust standard errors.
 
+IMPORTANT: The inundation boundary is the PRIMARY specification because
+it passes pre-trends tests (F=1.50, p=0.34). The SFHA boundary fails
+pre-trends (F=3.33, p<0.001) and should be used for robustness only.
+
 Input Files
 -----------
 - data_work/panel_parcel_month.parquet
@@ -23,10 +27,17 @@ months_since_event : Convert year-month to event time
 summarize_boundary : Compute DiD for sale rates at boundary
 summarize_price : Compute DiD for log prices at boundary
 main : Execute RD summary estimation
+
+Notes
+-----
+Default boundary is 'inund' (inundation). Use --boundary=sfha for robustness.
+Spatial standard errors via Conley (1999) available with --spatial-se flag.
 """
 from __future__ import annotations
+import argparse
 import os, sys
 from pathlib import Path
+from typing import Optional, List
 import pandas as pd
 import numpy as np
 import statsmodels.api as sm
@@ -179,12 +190,30 @@ def summarize_price(panel: pd.DataFrame, boundary: str, caliper: int) -> pd.Data
     }])
     return out
 
-def main():
+def main(
+    boundaries: Optional[List[str]] = None,
+    calipers: Optional[List[int]] = None,
+    spatial_se: bool = False,
+    conley_cutoff_km: float = 5.0
+):
     """
     Execute RD summary estimation for sale rates and prices.
 
-    Runs DiD estimation for both inundation and SFHA boundaries at
-    150m and 300m calipers, writes summary CSV files.
+    Runs DiD estimation at specified boundaries and calipers,
+    writes summary CSV files.
+
+    Parameters
+    ----------
+    boundaries : list of str, optional
+        Boundaries to test. Default is ['inund'] (primary spec).
+        Use ['inund', 'sfha'] for full analysis with SFHA as robustness.
+    calipers : list of int, optional
+        Caliper windows in meters. Default is [150, 300].
+    spatial_se : bool, optional
+        If True, compute Conley spatial standard errors.
+        Requires spatial_econometrics module. Default is False.
+    conley_cutoff_km : float, optional
+        Distance cutoff for Conley SEs in km. Default is 5.0.
 
     Raises
     ------
@@ -194,10 +223,19 @@ def main():
     ensure_env()
     if not PANEL.exists():
         raise SystemExit(f'Missing {PANEL}')
+
+    # Defaults: inundation is primary (passes pre-trends)
+    if boundaries is None:
+        boundaries = ['inund']  # Default to inund only
+    if calipers is None:
+        calipers = [150, 300]
+
     panel = pd.read_parquet(PANEL)
+
+    # Sale rate DiD summaries
     outs = []
-    for boundary in ['inund','sfha']:
-        for cal in [150, 300]:
+    for boundary in boundaries:
+        for cal in calipers:
             df = summarize_boundary(panel, boundary, cal)
             if not df.empty:
                 outs.append(df)
@@ -211,8 +249,8 @@ def main():
 
     # Price DiD summaries
     pouts = []
-    for boundary in ['inund','sfha']:
-        for cal in [150, 300]:
+    for boundary in boundaries:
+        for cal in calipers:
             dfp = summarize_price(panel, boundary, cal)
             if not dfp.empty:
                 pouts.append(dfp)
@@ -222,5 +260,69 @@ def main():
         pout.to_csv(ppath, index=False)
         print('Wrote', ppath)
 
+    # Spatial standard errors (if requested)
+    if spatial_se:
+        print(f'\nComputing Conley spatial SEs with {conley_cutoff_km}km cutoff...')
+        try:
+            from spatial_econometrics import conley_standard_errors
+            for boundary in boundaries:
+                for cal in calipers:
+                    result = conley_standard_errors(panel, boundary, cal, conley_cutoff_km)
+                    print(f'  {boundary} {cal}m: Conley SE = {result.get("se", "N/A"):.6f}')
+        except ImportError:
+            print('  WARNING: spatial_econometrics module not found.')
+            print('  Run: python src/07_estimation/spatial_econometrics.py first.')
+
+
+def parse_args():
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(
+        description='RD Summary: Boundary DiD estimation for sale rates and prices.'
+    )
+    parser.add_argument(
+        '--boundary', '-b',
+        nargs='+',
+        choices=['inund', 'sfha'],
+        default=['inund'],
+        help='Boundaries to test. Default: inund (primary spec). '
+             'Use "inund sfha" for full analysis.'
+    )
+    parser.add_argument(
+        '--caliper', '-c',
+        nargs='+',
+        type=int,
+        default=[150, 300],
+        help='Caliper windows in meters. Default: 150 300'
+    )
+    parser.add_argument(
+        '--spatial-se',
+        action='store_true',
+        help='Compute Conley spatial standard errors'
+    )
+    parser.add_argument(
+        '--conley-cutoff',
+        type=float,
+        default=5.0,
+        help='Distance cutoff for Conley SEs in km. Default: 5.0'
+    )
+    parser.add_argument(
+        '--all-boundaries',
+        action='store_true',
+        help='Run both inund and sfha boundaries'
+    )
+    return parser.parse_args()
+
+
 if __name__ == '__main__':
-    main()
+    args = parse_args()
+
+    boundaries = args.boundary
+    if args.all_boundaries:
+        boundaries = ['inund', 'sfha']
+
+    main(
+        boundaries=boundaries,
+        calipers=args.caliper,
+        spatial_se=args.spatial_se,
+        conley_cutoff_km=args.conley_cutoff
+    )

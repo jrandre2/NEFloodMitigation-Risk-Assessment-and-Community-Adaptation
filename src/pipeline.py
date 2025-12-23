@@ -26,6 +26,15 @@ rd_windows : Define RD caliper windows
 boundary_prepare : Prepare boundary geometries
 boundary_chunk : Calculate distances (chunked)
 boundary_merge : Merge distance calculations
+rd_summary : Run main RD DiD estimation
+rd_diagnostics : Run RD identification diagnostics
+spatial_econometrics : Run spatial econometrics (Conley SE, SAR, SEM)
+placebo_tests : Run placebo and falsification tests
+selection_correction : Run selection correction models (Heckman, IPW, Lee)
+quantile_effects : Run quantile treatment effects analysis
+extended_horizon : Run extended horizon persistence analysis
+mechanism_analysis : Run mechanism investigation (insurance, credit, info)
+run_all_diagnostics : Run complete diagnostics suite
 
 Usage
 -----
@@ -65,6 +74,74 @@ def parse_args() -> argparse.Namespace:
     pchunk.add_argument('--chunk-index', type=int, required=True)
     pchunk.add_argument('--chunk-total', type=int, required=True)
     sub.add_parser('boundary_merge')
+
+    # RD Summary with options
+    p_rd = sub.add_parser('rd_summary')
+    p_rd.add_argument('--boundary', '-b', nargs='+', default=['inund'],
+                      help='Boundary types (default: inund)')
+    p_rd.add_argument('--caliper', '-c', nargs='+', type=int, default=[300],
+                      help='Caliper distances in meters (default: 300)')
+    p_rd.add_argument('--spatial-se', action='store_true',
+                      help='Use Conley spatial standard errors')
+    p_rd.add_argument('--conley-cutoff', type=float, default=5.0,
+                      help='Conley SE cutoff in km (default: 5.0)')
+
+    # RD Diagnostics
+    sub.add_parser('rd_diagnostics')
+
+    # Spatial Econometrics
+    p_spatial = sub.add_parser('spatial_econometrics')
+    p_spatial.add_argument('--boundary', '-b', default='inund',
+                           help='Boundary type (default: inund)')
+    p_spatial.add_argument('--caliper', '-c', type=int, default=300,
+                           help='Caliper in meters (default: 300)')
+
+    # Placebo Tests
+    p_placebo = sub.add_parser('placebo_tests')
+    p_placebo.add_argument('--boundary', '-b', default='inund',
+                           help='Boundary type (default: inund)')
+    p_placebo.add_argument('--caliper', '-c', type=int, default=300,
+                           help='Caliper in meters (default: 300)')
+    p_placebo.add_argument('--n-permutations', '-n', type=int, default=500,
+                           help='Number of permutations (default: 500)')
+
+    # Selection Correction
+    p_select = sub.add_parser('selection_correction')
+    p_select.add_argument('--boundary', '-b', default='inund',
+                          help='Boundary type (default: inund)')
+    p_select.add_argument('--caliper', '-c', type=int, default=300,
+                          help='Caliper in meters (default: 300)')
+
+    # Quantile Effects
+    p_quant = sub.add_parser('quantile_effects')
+    p_quant.add_argument('--boundary', '-b', default='inund',
+                         help='Boundary type (default: inund)')
+    p_quant.add_argument('--caliper', '-c', type=int, default=300,
+                         help='Caliper in meters (default: 300)')
+
+    # Extended Horizon
+    p_horizon = sub.add_parser('extended_horizon')
+    p_horizon.add_argument('--boundary', '-b', default='inund',
+                           help='Boundary type (default: inund)')
+    p_horizon.add_argument('--caliper', '-c', type=int, default=300,
+                           help='Caliper in meters (default: 300)')
+
+    # Mechanism Analysis
+    p_mech = sub.add_parser('mechanism_analysis')
+    p_mech.add_argument('--boundary', '-b', default='inund',
+                        help='Boundary type (default: inund)')
+    p_mech.add_argument('--caliper', '-c', type=int, default=300,
+                        help='Caliper in meters (default: 300)')
+
+    # Run All Diagnostics
+    p_all = sub.add_parser('run_all_diagnostics')
+    p_all.add_argument('--boundary', '-b', default='inund',
+                       help='Primary boundary (default: inund)')
+    p_all.add_argument('--caliper', '-c', type=int, default=300,
+                       help='Caliper in meters (default: 300)')
+    p_all.add_argument('--skip-permutation', action='store_true',
+                       help='Skip slow permutation tests')
+
     return p.parse_args()
 
 def main():
@@ -130,6 +207,55 @@ def main():
         import importlib
         mod = importlib.import_module('03_exposure.boundary_merge')
         mod.main()
+    elif args.cmd == 'rd_summary':
+        import importlib
+        mod = importlib.import_module('07_estimation.rd_summary')
+        mod.main(
+            boundaries=args.boundary,
+            calipers=args.caliper,
+            spatial_se=args.spatial_se,
+            conley_cutoff_km=args.conley_cutoff
+        )
+    elif args.cmd == 'rd_diagnostics':
+        import importlib
+        mod = importlib.import_module('07_estimation.rd_diagnostics')
+        mod.main()
+    elif args.cmd == 'spatial_econometrics':
+        import importlib
+        mod = importlib.import_module('07_estimation.spatial_econometrics')
+        mod.main(boundary=args.boundary, caliper=args.caliper)
+    elif args.cmd == 'placebo_tests':
+        import importlib
+        mod = importlib.import_module('07_estimation.placebo_tests')
+        mod.main(
+            boundary=args.boundary,
+            caliper=args.caliper,
+            n_permutations=args.n_permutations
+        )
+    elif args.cmd == 'selection_correction':
+        import importlib
+        mod = importlib.import_module('07_estimation.selection_correction')
+        mod.main(boundary=args.boundary, caliper=args.caliper)
+    elif args.cmd == 'quantile_effects':
+        import importlib
+        mod = importlib.import_module('07_estimation.quantile_effects')
+        mod.main(boundary=args.boundary, caliper=args.caliper)
+    elif args.cmd == 'extended_horizon':
+        import importlib
+        mod = importlib.import_module('07_estimation.extended_horizon')
+        mod.main(boundary=args.boundary, caliper=args.caliper)
+    elif args.cmd == 'mechanism_analysis':
+        import importlib
+        mod = importlib.import_module('07_estimation.mechanism_analysis')
+        mod.main(boundary=args.boundary, caliper=args.caliper)
+    elif args.cmd == 'run_all_diagnostics':
+        import importlib
+        mod = importlib.import_module('07_estimation.run_all_diagnostics')
+        mod.run_all(
+            boundary=args.boundary,
+            caliper=args.caliper,
+            skip_permutation=args.skip_permutation
+        )
 
 if __name__ == '__main__':
     main()
