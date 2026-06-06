@@ -1,10 +1,25 @@
-# Nebraska Flood Resilience Project
+# Nebraska Flood Mitigation: Risk Assessment and Community Adaptation
 
 **Disaster Risk Awareness and Housing Resilience Planning for HUD-MID Areas in Nebraska**
 
-A research repository containing geospatial analysis scripts, FEMA NFIP claims data, and supporting
-documentation for flood risk assessment in Nebraska's Most Impacted and Distressed (HUD-MID) areas.
-Project period: January 2024 – December 2025. Led by researchers at the University of Nebraska-Lincoln.
+This repository supports a research project examining flood risk and community adaptation in
+Nebraska's Most Impacted and Distressed (HUD-MID) areas — communities identified by the U.S.
+Department of Housing and Urban Development (HUD) as severely affected by recent flood disasters.
+The work combines analysis of Federal Emergency Management Agency (FEMA) National Flood Insurance
+Program (NFIP) claims data with American Community Survey (ACS) socioeconomic indicators and
+high-resolution geospatial data to answer: *who is most exposed to flood risk, what does the
+damage look like by structure type, and how can local planning improve resilience?*
+
+Project period: January 2024 – December 2025.
+Led by researchers at the University of Nebraska-Lincoln.
+
+---
+
+## Key Output
+
+**[Flood Damage Analysis by Structure Type (PDF)](Data/Reports/Damage_by_structure_type.pdf)**
+— The primary report summarizing NFIP claim patterns, damage distributions by building type,
+and implications for Nebraska's HUD-MID communities.
 
 ---
 
@@ -23,78 +38,77 @@ Project period: January 2024 – December 2025. Led by researchers at the Univer
 
 ---
 
-## Repository Contents
+## Repository Map
 
 ```
 NEFloodMitigation/
 ├── Data/
-│   ├── NE_FEMA_Claims.csv              # Nebraska NFIP flood insurance claims (~6,000 records)
-│   ├── ACS_Tract_Data_Dictionary.json  # Variable definitions for ACS tract-level data
-│   ├── ACS_Variables_Defined.json      # ACS variable reference
+│   ├── NE_FEMA_Claims.csv               # Nebraska NFIP claims (~6,000 records; see dictionary)
+│   ├── ACS_Tract_Data_Dictionary.json   # Field definitions for ACS tract-level variables
+│   ├── ACS_Variables_Defined.json       # ACS variable reference
 │   ├── FEMA_Claims_Data_Dictionary.JSON # FEMA NFIP field-level data dictionary
-│   ├── FEMA_Claims_Data_Themes.svg     # Visual overview of FEMA claims data themes
-│   ├── Geospatial-Scripts/             # Python analysis and modeling scripts
-│   │   ├── ACS_FLDZONE_by_Area         # ACS data by flood zone (arcpy)
+│   ├── FEMA_Claims_Data_Themes.svg      # Visual overview of claims data themes
+│   ├── Geospatial-Scripts/              # Python analysis and modeling scripts
 │   │   ├── ACS_Spatial_Regression_Models.py
 │   │   ├── Bootstrap_Parameter_Testing_Pipeline.py
-│   │   ├── Bootstrap_NFIP_Probalistic_Metrics
-│   │   ├── Bootstrap_OmniScript        # Multi-scenario bootstrap pipeline (Dodge Co.)
-│   │   ├── BootstrapMetricsBorderPerturbations
-│   │   ├── BootstrapMetricsScript
 │   │   ├── CenPy_ACS_to_Shapefile.py
 │   │   ├── DEM_to_Points.py
-│   │   ├── Multithread_LiDAR_to_GeoTIFF
 │   │   ├── NFIPPolicyDescriptivesBootstrap.py
-│   │   ├── NFIP_Bootstrap
-│   │   ├── NFIP_Bootstrap_Parameter_Sampling
 │   │   ├── Owner_distance.py
 │   │   ├── Points_to_Tracts.py
-│   │   └── DouglasOwners/              # Douglas County property owner classification
-│   │       ├── DefiningOwners.py
-│   │       ├── Owner-Distance_Single-Family.py
-│   │       └── ResidentialOwnerNameClassification.py
+│   │   ├── [+ 8 additional bootstrap/LiDAR scripts]
+│   │   └── DouglasOwners/               # Douglas County property owner classification
 │   └── Reports/
-│       ├── Damage_by_structure_type.pdf  # Flood damage analysis by structure type (3 pp.)
-│       ├── Report_Template.JSON          # Detailed report template with section guidance
-│       └── ReportTemplate.JSON           # Compact report metadata template
-├── TimeLine.svg                          # Project timeline graphic
-├── LICENSE
-└── README.md
+│       ├── Damage_by_structure_type.pdf # Primary output report (3 pp.)
+│       └── Report_Template.JSON         # Report structure template
+├── docs/
+│   └── TECHNICAL_NOTES.md              # Script dependencies, workflows, environment setup
+├── TimeLine.svg                         # Project timeline graphic
+└── LICENSE
 ```
 
-### Script Notes
+**Large/raw data** (shapefiles, GeoTIFFs, geodatabases) are excluded from version control
+via `.gitignore` and must be obtained separately. The FEMA claims CSV (`NE_FEMA_Claims.csv`)
+includes geospatial identifier fields (county FIPS, census tract, coordinates); see
+`Data/FEMA_Claims_Data_Dictionary.JSON` for full field definitions.
 
-Scripts in `Data/Geospatial-Scripts/` without a `.py` extension are Python scripts committed
-without an extension (likely from direct GitHub uploads). Several depend on **ArcPy** (ArcGIS Pro)
-for geospatial operations; others use open-source libraries (geopandas, gdal, cenpy).
+---
+
+## What the Analysis Does
+
+**Bootstrap spatial disaggregation** — NFIP claims arrive with county-level geography. The
+bootstrap pipeline probabilistically assigns claims to individual census tracts using building
+footprints, flood zone codes, and elevation stratification, producing tract-level risk estimates
+with uncertainty bounds.
+
+**ACS spatial regression** — Spatial lag and spatial error models link ACS socioeconomic
+variables (income, poverty, disability, race/ethnicity, broadband access) to flood claim rates
+at the census-tract level, identifying which communities face compounded social and physical
+flood vulnerability.
+
+**Property owner classification** — Scripts classify Douglas County residential properties
+as owner-occupied or absentee/investor-owned using name-matching and owner-address distance
+metrics, informing questions about who bears flood risk and who makes mitigation decisions.
+
+**LiDAR and DEM processing** — Multithreaded scripts convert LiDAR point clouds and Digital
+Elevation Model (DEM) data to raster and point formats for elevation analysis.
+
+For dependency requirements, script-by-script workflow details, and environment setup, see
+**[docs/TECHNICAL_NOTES.md](docs/TECHNICAL_NOTES.md)**.
 
 ---
 
 ## Data
 
-| File | Description | Records |
-|------|-------------|---------|
-| `Data/NE_FEMA_Claims.csv` | Nebraska NFIP flood insurance claims with building/contents damage, policy, and geospatial fields | ~6,000 |
-
-The FEMA NFIP claims data is sourced from FEMA's OpenFEMA dataset. Field definitions are in
-`Data/FEMA_Claims_Data_Dictionary.JSON`.
-
----
-
-## Key Analyses
-
-- **Bootstrap spatial disaggregation** — Ensemble-based probabilistic assignment of NFIP claims
-  to census tracts using stratified sampling and elevation/flood-zone filters
-- **ACS spatial regression** — Linking American Community Survey socioeconomic variables to
-  flood risk zones at the census-tract level
-- **Property owner classification** — Identifying absentee/investor vs. owner-occupant properties
-  in Douglas County using name-matching and distance metrics
-- **LiDAR processing** — Multithreaded conversion of LiDAR point clouds to GeoTIFF rasters
-  for elevation analysis
+| File | Description |
+|---|---|
+| `Data/NE_FEMA_Claims.csv` | ~6,000 Nebraska NFIP flood insurance claims (building/contents damage, policy info, geospatial identifiers) — sourced from FEMA OpenFEMA |
+| `Data/FEMA_Claims_Data_Dictionary.JSON` | Field-level definitions for the NFIP claims file |
+| `Data/ACS_Tract_Data_Dictionary.json` | Definitions for ACS tract-level socioeconomic variables |
 
 ---
 
-## Contact
+## Team
 
 - **Dr. Zhenghong Tang** (Principal Investigator): [ztang2@unl.edu](mailto:ztang2@unl.edu)
 - **Dr. Yunwoo Nam** (Co-Investigator): [ynam2@unl.edu](mailto:ynam2@unl.edu)
@@ -105,7 +119,7 @@ The FEMA NFIP claims data is sourced from FEMA's OpenFEMA dataset. Field definit
 
 ## Acknowledgments
 
-Supported by the U.S. Department of Housing and Urban Development (HUD) as part of its efforts
-to address disaster recovery and resilience in the Most Impacted and Distressed (MID) areas of
+Supported by the U.S. Department of Housing and Urban Development (HUD) as part of its
+disaster recovery and resilience program for the Most Impacted and Distressed (MID) areas of
 Nebraska. Partners include the Nebraska Department of Economic Development, Nebraska Department
 of Natural Resources, FEMA, and local community organizations.
